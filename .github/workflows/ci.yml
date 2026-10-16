@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  self-test:
+    name: Safety & Causality Self-Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv pip install --system numpy pandas
+
+      - name: Syntax & compile check
+        run: python -m py_compile one.py
+
+      - name: Run deterministic safety tests
+        run: python one.py --self-test
