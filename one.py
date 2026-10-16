@@ -123,7 +123,7 @@ def validate(raw: pd.DataFrame, start_date: str = DEV_START, end_date: str = DEV
 
 
 def features(x: pd.DataFrame) -> pd.DataFrame:
-    """Compute strictly causal ATR and Price+Volume Momentum-Continuation signals."""
+    """Compute strictly causal ATR, regime, and Price+Volume Momentum-Continuation features."""
     df = x.copy()
     prev_close = df["close"].shift(1)
     tr = pd.concat([
@@ -132,17 +132,22 @@ def features(x: pd.DataFrame) -> pd.DataFrame:
         (df["low"] - prev_close).abs(),
     ], axis=1).max(axis=1)
     df["atr"] = tr.rolling(ATR_LEN, min_periods=ATR_LEN).mean()
+    df["atr_pct"] = df["atr"] / df["close"]
+    atr_base = df["atr_pct"].rolling(120, min_periods=30).median()
+    df["vol_ratio"] = df["atr_pct"] / atr_base
 
     ema_fast = df["close"].ewm(span=20, adjust=False).mean()
     ema_slow = df["close"].ewm(span=50, adjust=False).mean()
+    ema_macro = df["close"].ewm(span=200, adjust=False).mean()
     vol_sma = df["volume"].rolling(20, min_periods=20).mean()
 
-    # 1. Trend regime: fast EMA > slow EMA and close > slow EMA
+    # 1. Trend regimes (micro vs macro)
     df["trend"] = (ema_fast > ema_slow) & (df["close"] > ema_slow) & df["atr"].notna()
+    df["macro_trend"] = df["trend"] & (df["close"] > ema_macro) & (ema_slow > ema_macro)
 
-    # 2. Volume-backed impulse in the recent 6 bars (24h window prior to trigger)
-    bull_expansion = ((df["close"] - df["open"]) >= 1.0 * df["atr"]) & (df["volume"] >= 1.2 * vol_sma)
-    recent_impulse = bull_expansion.shift(1).rolling(6, min_periods=1).max() > 0
+    # 2. Volume-backed impulse bar & recent 6-bar (24h) impulse memory
+    df["impulse_bar"] = ((df["close"] - df["open"]) >= 1.0 * df["atr"]) & (df["volume"] >= 1.2 * vol_sma)
+    df["recent_impulse"] = df["impulse_bar"].shift(1).rolling(6, min_periods=1).max() > 0
 
     # 3. Controlled pullback: prior 1-3 bars dipped near EMA20 without breaking EMA50
     pullback_low = df["low"].shift(1).rolling(3, min_periods=1).min()
@@ -151,16 +156,17 @@ def features(x: pd.DataFrame) -> pd.DataFrame:
         (pullback_low > ema_slow.shift(1))
         & (df["close"].shift(1) < df["high"].shift(1).rolling(6, min_periods=1).max())
     )
+    df["pullback"] = (touched_pullback & held_structure).fillna(False)
 
     # 4. Continuation trigger: bullish bar reclaiming prior bar high and fast EMA
-    continuation = (
+    df["continuation"] = (
         (df["close"] > df["open"])
         & (df["close"] > df["high"].shift(1))
         & (df["close"] > ema_fast)
-    )
+    ).fillna(False)
 
     df["signal"] = (
-        df["trend"] & recent_impulse & touched_pullback & held_structure & continuation
+        df["trend"] & df["recent_impulse"] & df["pullback"] & df["continuation"]
     ).fillna(False)
     return df
 
@@ -256,6 +262,83 @@ def evaluate(x: pd.DataFrame, signal_idx: int, target_r: float = TARGET_R) -> di
             "net_R": net_r,
             "path_MFE_R": mfe_r, "path_MAE_R": mae_r,
             "target_before_stop": int(reason == "TARGET")}
+
+
+def select_non_overlapping(mask: pd.Series, max_idx: int) -> list[int]:
+    """Select non-overlapping indices spaced by > HOLD_BARS from any boolean condition mask."""
+    indices: list[int] = []
+    next_free = 0
+    arr = mask.to_numpy(dtype=bool)
+    for i in range(max(0, max_idx + 1)):
+        if i >= next_free and arr[i]:
+            indices.append(i)
+            next_free = i + HOLD_BARS + 1
+    return indices
+
+
+def analyze_behavior(x: pd.DataFrame, target_r: float = TARGET_R) -> None:
+    """Stage 02: Measure conditional trend, momentum, pullback, volatility & continuation behavior."""
+    max_idx = len(x) - HOLD_BARS - 1
+    valid = x["atr"].notna()
+
+    conditions: list[tuple[str, pd.Series]] = [
+        ("C0: All Bars (Unconditional)", valid),
+        ("C1: Bear/Counter-Trend (~Trend)", valid & ~x["trend"]),
+        ("C2: Micro Uptrend (EMA20>EMA50)", valid & x["trend"]),
+        ("C3: Macro Uptrend (+Close>EMA200)", valid & x["macro_trend"]),
+        ("C4: Impulse Chase (Enter on Impulse)", valid & x["trend"] & x["impulse_bar"]),
+        ("C5: Pullback Only (No Prior Impulse)", valid & x["trend"] & ~x["recent_impulse"] & x["pullback"] & x["continuation"]),
+        ("C6: Brick 1 Setup (Imp+PB+Cont)", valid & x["signal"]),
+        ("C7: Macro Brick 1 (Setup + >EMA200)", valid & x["signal"] & x["macro_trend"]),
+    ]
+
+    print("\n=== STAGE 02: CONDITIONAL MARKET BEHAVIOR & CONTINUATION MATRIX ===")
+    print(f"Non-overlapping 7d ({HOLD_BARS}-bar) episodes | Target={target_r}R, Stop={ATR_MULT}xATR, Full Costs+Funding")
+    header = (
+        f"  {'Condition':<36} {'N':>5} {'Win%':>6} {'Mean_R':>8} "
+        f"{'Med_MFE':>8} {'P75_MFE':>8} {'Med_MAE':>8} {'Skew(MFE/|MAE|)':>15}"
+    )
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+
+    for label, mask in conditions:
+        idxs = select_non_overlapping(mask, max_idx)
+        if not idxs:
+            print(f"  {label:<36} {0:>5d}    n/a      n/a      n/a      n/a      n/a             n/a")
+            continue
+        rows = [evaluate(x, i, target_r=target_r) for i in idxs]
+        a = pd.DataFrame(rows)
+        win_pct = float(a.target_before_stop.mean()) * 100
+        mean_r = float(a.net_R.mean())
+        med_mfe = float(a.path_MFE_R.median())
+        p75_mfe = float(np.percentile(a.path_MFE_R, 75))
+        med_mae = float(a.path_MAE_R.median())
+        skew = med_mfe / max(abs(med_mae), 1e-9)
+        print(
+            f"  {label:<36} {len(a):>5d} {win_pct:>5.1f}% {mean_r:>+7.3f}R "
+            f"{med_mfe:>+7.2f}R {p75_mfe:>+7.2f}R {med_mae:>+7.2f}R {skew:>14.2f}x"
+        )
+
+    # Volatility regime conditioning on Setup vs Micro Uptrend
+    print("\n=== VOLATILITY REGIME CONDITIONING (ATR% Relative to 20d Rolling Median) ===")
+    vol_regimes = [
+        ("Low Vol / Compression (< 0.85x)", x["vol_ratio"] < 0.85),
+        ("Normal Volatility (0.85x - 1.25x)", (x["vol_ratio"] >= 0.85) & (x["vol_ratio"] <= 1.25)),
+        ("High Vol / Expansion (> 1.25x)", x["vol_ratio"] > 1.25),
+    ]
+    print(f"  {'Volatility Regime':<36} {'Group':<10} {'N':>5} {'Win%':>6} {'Mean_R':>8} {'Med_MFE':>8} {'P75_MFE':>8} {'Med_MAE':>8}")
+    print("  " + "-" * 96)
+    for v_label, v_mask in vol_regimes:
+        for g_label, g_mask in [("Trend", valid & x["trend"] & v_mask), ("Setup", valid & x["signal"] & v_mask)]:
+            idxs = select_non_overlapping(g_mask, max_idx)
+            if not idxs:
+                continue
+            a = pd.DataFrame([evaluate(x, i, target_r=target_r) for i in idxs])
+            print(
+                f"  {v_label:<36} {g_label:<10} {len(a):>5d} {a.target_before_stop.mean()*100:>5.1f}% "
+                f"{a.net_R.mean():>+7.3f}R {a.path_MFE_R.median():>+7.2f}R "
+                f"{np.percentile(a.path_MFE_R, 75):>+7.2f}R {a.path_MAE_R.median():>+7.2f}R"
+            )
 
 
 def bootstrap_stats(setup_r: np.ndarray, ctrl_r: np.ndarray, n_boot: int = BOOTSTRAP_N) -> dict:
@@ -405,6 +488,7 @@ def self_test() -> None:
     b = features(validate(b))
     pd.testing.assert_series_equal(a.signal.iloc[:150], b.signal.iloc[:150])
     pd.testing.assert_series_equal(a.atr.iloc[:150], b.atr.iloc[:150])
+    pd.testing.assert_series_equal(a.macro_trend.iloc[:150], b.macro_trend.iloc[:150])
 
     # Same candles and seed -> deterministic signal/control selection & bootstrap.
     assert select_events(a) == select_events(a)
@@ -426,8 +510,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ONEFILE Brick 1: exploratory BTC 4h event study")
     parser.add_argument("--csv", default="btc_4h.csv", help="UTC time,open,high,low,close,volume,funding_rate")
     parser.add_argument("--symbol", default=SYMBOL, help="Binance USD-M perpetual symbol (default: BTCUSDT)")
-    parser.add_argument("--target-r", type=float, default=TARGET_R, help="Target R-multiple (default: 2.0)")
+    parser.add_argument("--target-r", type=float, default=TARGET_R, help="Target R-multiple (default: 3.0)")
     parser.add_argument("--download", action="store_true", help="Download canonical USD-M 4h candles + funding")
+    parser.add_argument("--behavior", action="store_true", help="Run Stage 02 conditional market behavior matrix")
     parser.add_argument("--unlock-oos", action="store_true",
                         help="Evaluate locked OOS holdout [2025-01-01, 2026-04-01) (Stage 06 only)")
     parser.add_argument("--self-test", action="store_true", help="Run deterministic safety tests")
@@ -460,6 +545,8 @@ def main() -> None:
     print(f"Long-only; next-open entry; ATR stop {ATR_MULT}x; target {args.target_r}R; "
           f"time stop {HOLD_BARS} bars")
     print(f"Assumed fee {FEE_BPS:.1f} bps/side; slip {SLIPPAGE_BPS:.1f} bps/side + historical 8h funding")
+    if args.behavior:
+        analyze_behavior(df, target_r=args.target_r)
     summarize("SETUP", signal_rows)
     summarize("MONTH-MATCHED TREND-ONLY CONTROL", control_rows)
     summarize_by_year(signal_rows, control_rows)
