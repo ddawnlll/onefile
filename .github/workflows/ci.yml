@@ -19,11 +19,11 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Install dependencies
-        run: uv pip install --system numpy pandas
+      - name: Install locked project dependencies in isolated environment
+        run: uv sync --frozen --python 3.12
 
       - name: Syntax & compile check
-        run: python -m py_compile one.py
+        run: uv run --no-sync --python 3.12 python -m py_compile one.py
 
       - name: Run deterministic safety tests
-        run: python one.py --self-test
+        run: uv run --no-sync --python 3.12 python one.py --self-test
