@@ -27,3 +27,11 @@ jobs:
 
       - name: Run deterministic safety tests
         run: uv run --no-sync --python 3.12 python one.py --self-test
+
+      - name: Set up Node for Pi extension tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pi extension policy and hook unit tests
+        run: node --experimental-strip-types --test .pi/tests/onefile-extensions.test.mjs
