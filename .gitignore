@@ -13,3 +13,5 @@ regime_cold_timing.txt
 regime3_tune.json
 .claude/worktrees/
 artifacts/
+regime3_final_holdout.json
+regime3_final_forecasts.csv
