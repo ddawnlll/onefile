@@ -1,0 +1,90 @@
+{
+  "frozen_at_utc": "2026-10-17T23:55:40.569749+00:00",
+  "identity": {
+    "specification": {
+      "study_id": "ONEFILE-H1A-BTC-FEASIBILITY-01",
+      "window": [
+        "2020-01-01",
+        "2025-01-01"
+      ],
+      "sealed": [
+        "ONEFILE >=2025-01-01",
+        "monograph G3 >=2026-04-01"
+      ],
+      "deviations": [
+        "BTC only, not core-5",
+        "4 outer folds, not preferred >=5",
+        "existing 4h source aggregated to complete 1D; no 1h Parquet"
+      ],
+      "target": "risk: >=10 consecutive q=0; Z20 log-return score +/-1.25, log-return ER20>=0.35; onset confirmed 8 of NEXT 10 days; first confirmed onset next 7d",
+      "models": {
+        "M0": [
+          "age"
+        ],
+        "M1": [
+          "age",
+          "r5",
+          "r20",
+          "r63",
+          "z20",
+          "er20",
+          "distance",
+          "dz5",
+          "rv5",
+          "rv20"
+        ],
+        "M2": [
+          "age",
+          "r5",
+          "r20",
+          "r63",
+          "z20",
+          "er20",
+          "distance",
+          "dz5",
+          "rv5",
+          "rv20",
+          "compression",
+          "volume_surprise"
+        ]
+      },
+      "train": "first 3y; expanding; 6mo outer; strict origin+17d<fold start",
+      "inner": "6mo forward folds from 2021-07; C=.1/1/10 by Brier; temperature=.75/1/1.5/2 by inner logloss",
+      "alerts": "signed max p; thresholds .1/.2/.3/.4/.5/.7/.9; maximize inner hits with <=3 false/year, median lead>=2; else disabled 1.01; global 7d cooldown",
+      "primary": "1-BS(M2)/BS(M1); >=5% and 95% calendar-block lower>0",
+      "uncertainty": "1000 paired circular calendar blocks each 28/56/84d; widest CI; empty days retained; seed42",
+      "heldout_utility": "M2 outer alarms: detected_events>0, false alarms/asset-year<=3, median lead>=2d; separate from score gate; low event power remains inconclusive",
+      "evidence_floor": {
+        "up": 20,
+        "down": 20,
+        "pm14d_clusters": 12
+      },
+      "placebo": "60d historical lag of M2 extras; same M2 C/temperature, diagnostic only",
+      "descriptive": "ten overlapping conditions; 1/3/7d; sign of past5d; 3R/5R, 7d max; 1R=1.5 daily ATR14; native4h vectorbt; all eight 8d phases; NO ranking/significance/edge selection",
+      "conditions": [
+        "all momentum5d",
+        "q aligned",
+        "q neutral",
+        "new q crossing aligned",
+        "RV5/RV20<.8",
+        "|r1|>2*previous RV20",
+        "volume/prior20dMedian>1.5",
+        "r1 opposite r5 and |r1|>RV20",
+        "side*funding3d>.001",
+        "side*funding3d<0"
+      ],
+      "descriptive_attainment": "gross barrier hits separate from realized net_R>=3/5 and stressed net_R>=3/5 under each gross target/1R stop/7d timeout exit policy; empty groups retain N=0 with null statistics",
+      "costs": {
+        "fee_bps_side": 4.0,
+        "slip_bps_side": 2.0,
+        "stress_extra_rt_bps": 12,
+        "funding": "historical8h, open-price proxy"
+      },
+      "trial_history": "unknown; this is historical development, NOT independent OOS; no positive edge certification",
+      "h1a_economics": "forbidden unless full forecast/evidence gates pass; no live trading"
+    },
+    "input_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+    "code_sha256": "5f3ec6410594f3c12f94e5356dc0f1d6d5ac0659a999932425fd1ca3b3a3fd1e"
+  },
+  "note": "Local pre-score freeze, not an external/independent preregistration or git commit."
+}

@@ -1,0 +1,39 @@
+{
+  "frozen_at_utc": "2026-10-18T01:34:09.479535+00:00",
+  "identity": {
+    "specification": {
+      "study_id": "ONEFILE-CORE5-H1ABC-DEV-EXPLORATORY-01",
+      "window": [
+        "2020-01-01",
+        "2025-01-01"
+      ],
+      "sealed_never_read": [
+        "ONEFILE >=2025-01-01",
+        "monograph G3 >=2026-04-01"
+      ],
+      "assets": [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "XRPUSDT",
+        "BNBUSDT"
+      ],
+      "source": "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/monthly",
+      "H1A": "per-asset monograph onset; M0/M1/M2 expanding 6mo forecasts; >=17d purge; fixed logistic C=1; M2 alert threshold selected on inner forward folds; raw probabilities/calibration scored OOS; pooled paired 28/56/84d blocks",
+      "H1B": "online Gaussian BOCPD NIG/Student-t, hazard=1/60, cap run length 365; P(run length<=2)>=.5 alarm; 7d cooldown; event match onset..onset+10; signed close-to-close 1/3/7d continuation vs q-crossing baseline",
+      "H1C": "5/10d future mean squared daily log return; monthly expanding walk-forward HAR-RV(log variance on RV1/RV5/RV22) vs EWMA(lambda=.94) and RV22 persistence; H-day target purge; QLIKE primary",
+      "funding": "known 3d settlement funding at daily close adds one predictor to locked M1-style return ridge; 1/3/7d expanding OOS; skill and funding PnL remain distinct",
+      "asymmetry": "same 10 fixed descriptive conditions; native vectorbt 3R/5R gross barriers, 1R stop, 7d timeout, daily 1.5*ATR14 risk; 4bp/side fee+2bp/side slippage+historical funding proxy; no condition selection",
+      "uncertainty": "paired 28/56/84 calendar-day circular bootstrap; symbols on the same dates resampled together; overlap and shared macro shocks acknowledged",
+      "economic_mechanisms": "OHLCV/funding cannot identify trader identity, order-book liquidity, liquidation causality or spot-perp basis; no causal claim",
+      "trial_history": "unknown; historical research extension chosen after BTC H1-A/descriptive results; exploratory, no independent OOS or edge certification",
+      "costs": {
+        "fee_bps_side": 4.0,
+        "slippage_bps_side": 2.0
+      }
+    },
+    "input_sha256": "6315f59770d46850e7eb8ea641a0bc8f6d135fbd1405e83ddf301b5705911156",
+    "code_sha256": "9fb12e2a921b69cb842fdb2ba78ca9b6b22fdc44fe2c08fa7fe387840fd4af8a"
+  },
+  "note": "Local historical freeze before this run, not independent preregistration or OOS."
+}

@@ -1,0 +1,4604 @@
+{
+  "protocol_sha256": "0d5b27d1f47dc537a0c1fa34b37cd679d49526234cb0c6e1eaf8b667949352f5",
+  "readiness": {
+    "universe_symbol": "BTCUSDT",
+    "interval": "4h",
+    "data_source": "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/monthly",
+    "start_date": "2020-01-01",
+    "end_date": "2025-01-01",
+    "expected_candles": 10962,
+    "actual_candles": 10962,
+    "missing_candles": 0,
+    "expected_8h_settlements": 5481,
+    "actual_8h_settlements": 5481,
+    "non_zero_funding_settlements": 5481,
+    "file_name": "btc_4h.csv",
+    "file_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+    "code_sha256": "5f3ec6410594f3c12f94e5356dc0f1d6d5ac0659a999932425fd1ca3b3a3fd1e",
+    "candle_integrity": "PASS",
+    "funding_coverage": "PASS",
+    "chronological_bounds": "PASS",
+    "qc_integrity": "PASS",
+    "qc_error": null,
+    "verdict": "PASS",
+    "feature_history_start": "2020-01-01",
+    "feature_history_bars": 10962,
+    "funding_source_verification": {
+      "status": "VERIFIED",
+      "method": "fresh HTTPS Binance monthly funding comparison",
+      "settlements": 5481,
+      "verified_at_utc": "2026-10-17T23:55:40.224185+00:00"
+    }
+  },
+  "h1a": {
+    "verdict": "INCONCLUSIVE / low event power; BTC-only feasibility",
+    "minimum_evidence_met": false,
+    "forecast_score_gate": false,
+    "heldout_utility_gate": false,
+    "economic_simulation": "NOT RUN: full forecast/evidence/validation gates not passed",
+    "folds": [
+      {
+        "start": "2023-01-01 00:00:00+00:00",
+        "end": "2023-07-01 00:00:00+00:00",
+        "train_rows": 486,
+        "test_rows": 90,
+        "scored_rows": 90,
+        "censored_rows": 0,
+        "exposure": {
+          "start": "2023-01-01 00:00:00+00:00",
+          "end_exclusive": "2023-07-01 00:00:00+00:00",
+          "days": 181
+        },
+        "train_latest_origin": "2022-12-14 00:00:00+00:00",
+        "test_first_origin": "2023-01-01 00:00:00+00:00",
+        "prior_fallback": false,
+        "train_class_counts": {
+          "0": 445,
+          "1": 23,
+          "-1": 18
+        },
+        "models": {
+          "M0": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 3,
+            "brier": 0.27758637322367785
+          },
+          "M1": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 3,
+            "brier": 0.2406452982783681
+          },
+          "M2": {
+            "C": 1.0,
+            "temperature": 1.5,
+            "alert_threshold": 0.5,
+            "inner_folds": 3,
+            "brier": 0.20062114634947842
+          }
+        },
+        "inner_exposure": [
+          {
+            "start": "2021-07-01 00:00:00+00:00",
+            "end_exclusive": "2022-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2022-01-01 00:00:00+00:00",
+            "end_exclusive": "2022-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2022-07-01 00:00:00+00:00",
+            "end_exclusive": "2022-12-15 00:00:00+00:00",
+            "days": 167
+          }
+        ],
+        "inner_exposure_days": 532
+      },
+      {
+        "start": "2023-07-01 00:00:00+00:00",
+        "end": "2024-01-01 00:00:00+00:00",
+        "train_rows": 581,
+        "test_rows": 76,
+        "scored_rows": 76,
+        "censored_rows": 0,
+        "exposure": {
+          "start": "2023-07-01 00:00:00+00:00",
+          "end_exclusive": "2024-01-01 00:00:00+00:00",
+          "days": 184
+        },
+        "train_latest_origin": "2023-06-13 00:00:00+00:00",
+        "test_first_origin": "2023-07-19 00:00:00+00:00",
+        "prior_fallback": false,
+        "train_class_counts": {
+          "0": 533,
+          "1": 30,
+          "-1": 18
+        },
+        "models": {
+          "M0": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 4,
+            "brier": 0.4773126737762389
+          },
+          "M1": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 0.3,
+            "inner_folds": 4,
+            "brier": 0.4785524959621971
+          },
+          "M2": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 0.4,
+            "inner_folds": 4,
+            "brier": 0.4706527500527781
+          }
+        },
+        "inner_exposure": [
+          {
+            "start": "2021-07-01 00:00:00+00:00",
+            "end_exclusive": "2022-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2022-01-01 00:00:00+00:00",
+            "end_exclusive": "2022-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2022-07-01 00:00:00+00:00",
+            "end_exclusive": "2023-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2023-01-01 00:00:00+00:00",
+            "end_exclusive": "2023-06-14 00:00:00+00:00",
+            "days": 164
+          }
+        ],
+        "inner_exposure_days": 713
+      },
+      {
+        "start": "2024-01-01 00:00:00+00:00",
+        "end": "2024-07-01 00:00:00+00:00",
+        "train_rows": 661,
+        "test_rows": 109,
+        "scored_rows": 109,
+        "censored_rows": 0,
+        "exposure": {
+          "start": "2024-01-01 00:00:00+00:00",
+          "end_exclusive": "2024-07-01 00:00:00+00:00",
+          "days": 182
+        },
+        "train_latest_origin": "2023-12-04 00:00:00+00:00",
+        "test_first_origin": "2024-01-01 00:00:00+00:00",
+        "prior_fallback": false,
+        "train_class_counts": {
+          "0": 586,
+          "1": 51,
+          "-1": 24
+        },
+        "models": {
+          "M0": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 5,
+            "brier": 0.12042295002591008
+          },
+          "M1": {
+            "C": 0.1,
+            "temperature": 1.5,
+            "alert_threshold": 0.4,
+            "inner_folds": 5,
+            "brier": 0.1405894243984903
+          },
+          "M2": {
+            "C": 0.1,
+            "temperature": 1.5,
+            "alert_threshold": 0.4,
+            "inner_folds": 5,
+            "brier": 0.1423894335217772
+          }
+        },
+        "inner_exposure": [
+          {
+            "start": "2021-07-01 00:00:00+00:00",
+            "end_exclusive": "2022-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2022-01-01 00:00:00+00:00",
+            "end_exclusive": "2022-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2022-07-01 00:00:00+00:00",
+            "end_exclusive": "2023-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2023-01-01 00:00:00+00:00",
+            "end_exclusive": "2023-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2023-07-01 00:00:00+00:00",
+            "end_exclusive": "2023-12-15 00:00:00+00:00",
+            "days": 167
+          }
+        ],
+        "inner_exposure_days": 897
+      },
+      {
+        "start": "2024-07-01 00:00:00+00:00",
+        "end": "2025-01-01 00:00:00+00:00",
+        "train_rows": 768,
+        "test_rows": 71,
+        "scored_rows": 65,
+        "censored_rows": 6,
+        "exposure": {
+          "start": "2024-07-01 00:00:00+00:00",
+          "end_exclusive": "2024-12-16 00:00:00+00:00",
+          "days": 168
+        },
+        "train_latest_origin": "2024-06-13 00:00:00+00:00",
+        "test_first_origin": "2024-07-19 00:00:00+00:00",
+        "prior_fallback": false,
+        "train_class_counts": {
+          "0": 686,
+          "1": 58,
+          "-1": 24
+        },
+        "models": {
+          "M0": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 6,
+            "brier": 0.016966896888813487
+          },
+          "M1": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 6,
+            "brier": 0.0356938979407305
+          },
+          "M2": {
+            "C": 0.1,
+            "temperature": 1.0,
+            "alert_threshold": 1.01,
+            "inner_folds": 6,
+            "brier": 0.03321562067745958
+          }
+        },
+        "inner_exposure": [
+          {
+            "start": "2021-07-01 00:00:00+00:00",
+            "end_exclusive": "2022-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2022-01-01 00:00:00+00:00",
+            "end_exclusive": "2022-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2022-07-01 00:00:00+00:00",
+            "end_exclusive": "2023-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2023-01-01 00:00:00+00:00",
+            "end_exclusive": "2023-07-01 00:00:00+00:00",
+            "days": 181
+          },
+          {
+            "start": "2023-07-01 00:00:00+00:00",
+            "end_exclusive": "2024-01-01 00:00:00+00:00",
+            "days": 184
+          },
+          {
+            "start": "2024-01-01 00:00:00+00:00",
+            "end_exclusive": "2024-06-14 00:00:00+00:00",
+            "days": 165
+          }
+        ],
+        "inner_exposure_days": 1079
+      }
+    ],
+    "N_forecasts": 346,
+    "N_scored": 340,
+    "N_censored": 6,
+    "exposure_ranges": [
+      {
+        "start": "2023-01-01 00:00:00+00:00",
+        "end_exclusive": "2023-07-01 00:00:00+00:00",
+        "days": 181
+      },
+      {
+        "start": "2023-07-01 00:00:00+00:00",
+        "end_exclusive": "2024-01-01 00:00:00+00:00",
+        "days": 184
+      },
+      {
+        "start": "2024-01-01 00:00:00+00:00",
+        "end_exclusive": "2024-07-01 00:00:00+00:00",
+        "days": 182
+      },
+      {
+        "start": "2024-07-01 00:00:00+00:00",
+        "end_exclusive": "2024-12-16 00:00:00+00:00",
+        "days": 168
+      }
+    ],
+    "exposure_days": 715,
+    "event_row_prevalence": 0.12058823529411765,
+    "scoreable_onsets_up": 5,
+    "scoreable_onsets_down": 1,
+    "calendar_clusters_pm14d": 6,
+    "metrics": {
+      "M0": {
+        "brier": 0.22202201955212425,
+        "log_loss": 0.44587519470375353,
+        "event_pr_auc_AP": 0.09827578314244656,
+        "calibration_bins": [
+          {
+            "range": [
+              0.0,
+              0.1
+            ],
+            "N": 185,
+            "predicted": 0.08105789525538018,
+            "observed": 0.1837837837837838
+          },
+          {
+            "range": [
+              0.1,
+              0.25
+            ],
+            "N": 155,
+            "predicted": 0.10858408789072187,
+            "observed": 0.04516129032258064
+          },
+          {
+            "range": [
+              0.25,
+              0.5
+            ],
+            "N": 0,
+            "predicted": null,
+            "observed": null
+          },
+          {
+            "range": [
+              0.5,
+              1.000001
+            ],
+            "N": 0,
+            "predicted": null,
+            "observed": null
+          }
+        ],
+        "alarms": {
+          "alarms": 0,
+          "detected_events": 0,
+          "false_alarms": 0,
+          "false_per_asset_year": 0.0,
+          "precision": null,
+          "median_lead_days": null,
+          "alarm_archive": [],
+          "missed_scoreable_events": 6
+        }
+      },
+      "M1": {
+        "brier": 0.2225659328345972,
+        "log_loss": 0.4328009255764381,
+        "event_pr_auc_AP": 0.15872565055055637,
+        "calibration_bins": [
+          {
+            "range": [
+              0.0,
+              0.1
+            ],
+            "N": 195,
+            "predicted": 0.043379754317053855,
+            "observed": 0.13846153846153847
+          },
+          {
+            "range": [
+              0.1,
+              0.25
+            ],
+            "N": 115,
+            "predicted": 0.16114184487787878,
+            "observed": 0.0782608695652174
+          },
+          {
+            "range": [
+              0.25,
+              0.5
+            ],
+            "N": 30,
+            "predicted": 0.31781535785292786,
+            "observed": 0.16666666666666666
+          },
+          {
+            "range": [
+              0.5,
+              1.000001
+            ],
+            "N": 0,
+            "predicted": null,
+            "observed": null
+          }
+        ],
+        "alarms": {
+          "alarms": 3,
+          "detected_events": 1,
+          "false_alarms": 2,
+          "false_per_asset_year": 1.0216783216783216,
+          "precision": 0.3333333333333333,
+          "median_lead_days": 1.0,
+          "alarm_archive": [
+            {
+              "time": "2024-01-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": null
+            },
+            {
+              "time": "2024-02-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": 1500
+            },
+            {
+              "time": "2024-04-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": null
+            }
+          ],
+          "missed_scoreable_events": 5
+        }
+      },
+      "M2": {
+        "brier": 0.21030875227462578,
+        "log_loss": 0.41402711104584633,
+        "event_pr_auc_AP": 0.24103827431919125,
+        "calibration_bins": [
+          {
+            "range": [
+              0.0,
+              0.1
+            ],
+            "N": 179,
+            "predicted": 0.04513961736465256,
+            "observed": 0.10614525139664804
+          },
+          {
+            "range": [
+              0.1,
+              0.25
+            ],
+            "N": 119,
+            "predicted": 0.15685485065600135,
+            "observed": 0.10084033613445378
+          },
+          {
+            "range": [
+              0.25,
+              0.5
+            ],
+            "N": 39,
+            "predicted": 0.3233061839899446,
+            "observed": 0.23076923076923078
+          },
+          {
+            "range": [
+              0.5,
+              1.000001
+            ],
+            "N": 3,
+            "predicted": 0.5440598747418964,
+            "observed": 0.3333333333333333
+          }
+        ],
+        "alarms": {
+          "alarms": 4,
+          "detected_events": 2,
+          "false_alarms": 2,
+          "false_per_asset_year": 1.0216783216783216,
+          "precision": 0.5,
+          "median_lead_days": 1.5,
+          "alarm_archive": [
+            {
+              "time": "2023-06-24 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": 1271
+            },
+            {
+              "time": "2024-01-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": null
+            },
+            {
+              "time": "2024-02-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": 1500
+            },
+            {
+              "time": "2024-04-09 00:00:00+00:00",
+              "side": 1,
+              "matched_onset_i": null
+            }
+          ],
+          "missed_scoreable_events": 4
+        }
+      },
+      "placebo": {
+        "brier": 0.21613530005834805,
+        "log_loss": 0.4339272421339453,
+        "event_pr_auc_AP": 0.2143963012818551,
+        "calibration_bins": [
+          {
+            "range": [
+              0.0,
+              0.1
+            ],
+            "N": 166,
+            "predicted": 0.04496619183150962,
+            "observed": 0.12650602409638553
+          },
+          {
+            "range": [
+              0.1,
+              0.25
+            ],
+            "N": 146,
+            "predicted": 0.15475980635598624,
+            "observed": 0.0958904109589041
+          },
+          {
+            "range": [
+              0.25,
+              0.5
+            ],
+            "N": 28,
+            "predicted": 0.3374588462896648,
+            "observed": 0.21428571428571427
+          },
+          {
+            "range": [
+              0.5,
+              1.000001
+            ],
+            "N": 0,
+            "predicted": null,
+            "observed": null
+          }
+        ]
+      }
+    },
+    "relative_brier_gain": {
+      "estimate": 0.055072132576014954,
+      "ci95": [
+        -0.02673482626131226,
+        0.15181762813369118
+      ],
+      "sensitivity": [
+        {
+          "block_days": 28,
+          "ci95": [
+            -0.02673482626131226,
+            0.13748324859573396
+          ],
+          "nonempty_draws": 1000
+        },
+        {
+          "block_days": 56,
+          "ci95": [
+            -0.017139103382266884,
+            0.14307993196623314
+          ],
+          "nonempty_draws": 1000
+        },
+        {
+          "block_days": 84,
+          "ci95": [
+            -0.01609846424294285,
+            0.15181762813369118
+          ],
+          "nonempty_draws": 1000
+        }
+      ]
+    },
+    "proximity_diagnostic": [
+      {
+        "group": "near_Z_boundary",
+        "N": 22,
+        "event_rate": 0.2727272727272727,
+        "relative_gain": 0.15416701993701432
+      },
+      {
+        "group": "far_Z_boundary",
+        "N": 318,
+        "event_rate": 0.11006289308176101,
+        "relative_gain": 0.03962826095711769
+      }
+    ],
+    "independent_validation": false
+  },
+  "market_behavior": [
+    {
+      "condition": "all_momentum",
+      "N_overlapping_days": 1757,
+      "horizons": {
+        "1": {
+          "continuation": 0.46215139442231074,
+          "q_state_survival": 0.1952191235059761,
+          "return_quantiles": [
+            -0.035264111459372666,
+            -0.0017218289649895135,
+            0.037251919086694424
+          ],
+          "mean_gross": -0.0001495346893733445,
+          "mean_net": -0.0014679338499981977,
+          "continuation_uncertainty": {
+            "estimate": 0.46215139442231074,
+            "ci95": [
+              0.43880193511667615,
+              0.48662492885600456
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.43995446784291403,
+                  0.48434832100170744
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.44052361980648835,
+                  0.48662492885600456
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.43880193511667615,
+                  0.48493170176437106
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0014679338499981977,
+            "ci95": [
+              -0.0029126312212509288,
+              7.704823669019602e-05
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0029020943434905767,
+                  -3.3214619887287753e-06
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0029126312212509288,
+                  -2.200349645104732e-05
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0028759406087942477,
+                  7.704823669019602e-05
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.48434832100170744,
+          "q_state_survival": 0.14171883892999432,
+          "return_quantiles": [
+            -0.062410076741011886,
+            -0.001323066118920857,
+            0.06835291114143927
+          ],
+          "mean_gross": 0.0014531678669620358,
+          "mean_net": -0.00018867965938605306,
+          "continuation_uncertainty": {
+            "estimate": 0.48434832100170744,
+            "ci95": [
+              0.45589072282299375,
+              0.5156516789982926
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.45589072282299375,
+                  0.5139442231075697
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.45759817871371655,
+                  0.5156516789982926
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4575839499146272,
+                  0.5145276038702333
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.00018867965938605306,
+            "ci95": [
+              -0.0036801075393010085,
+              0.003787021643554659
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0036801075393010085,
+                  0.0036462366204824894
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.003519522411646274,
+                  0.003708904657871659
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0035600176588538274,
+                  0.003787021643554659
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.48434832100170744,
+          "q_state_survival": 0.09277177006260671,
+          "return_quantiles": [
+            -0.09994565261336597,
+            -0.003384719327011121,
+            0.11170308443201667
+          ],
+          "mean_gross": 0.0009256678027424313,
+          "mean_net": -0.0012962204148889644,
+          "continuation_uncertainty": {
+            "estimate": 0.48434832100170744,
+            "ci95": [
+              0.44621513944223107,
+              0.520774046670461
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.44621513944223107,
+                  0.520774046670461
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4507541263517359,
+                  0.5196499715424018
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.45246158224245875,
+                  0.5150967558338075
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0012962204148889644,
+            "ci95": [
+              -0.008323263428149536,
+              0.006569110006492343
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.008323263428149536,
+                  0.005946366015749189
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.008101905820128076,
+                  0.006432075905732692
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.008005162256894939,
+                  0.006569110006492343
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.06033010813887308,
+          "net_target_attainment": 0.00910643141718839,
+          "stress_net_target_attainment": 0.003414911781445646,
+          "net_positive_rate": 0.43540125213431985,
+          "net_R_quantiles": [
+            -1.028586748266842,
+            -0.17910797080869176,
+            1.6306999854573225
+          ],
+          "net_R": 0.025531236680042185,
+          "ex_funding_R": 0.037181124362727386,
+          "stress_net_R": 0.006319046375560534,
+          "mean_ci": {
+            "estimate": 0.025531236680042185,
+            "ci95": [
+              -0.07482215434625852,
+              0.12194161413401566
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.07482215434625852,
+                  0.120112628291774
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.06066893934297885,
+                  0.12194161413401566
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.060752332549943645,
+                  0.1167924222320142
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 220,
+          "phase0_net_R": 0.001321375370105696,
+          "phase_mean_range": [
+            -0.005925396521607927,
+            0.10318855698869847
+          ],
+          "by_year": {
+            "2020": {
+              "N": 302,
+              "net_R": 0.19162258909277974
+            },
+            "2021": {
+              "N": 365,
+              "net_R": 0.037614377127629064
+            },
+            "2022": {
+              "N": 365,
+              "net_R": -0.08945447703953639
+            },
+            "2023": {
+              "N": 365,
+              "net_R": 0.06203498185209841
+            },
+            "2024": {
+              "N": 360,
+              "net_R": -0.04647991935376419
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.01935116676152533,
+          "net_target_attainment": 0.003414911781445646,
+          "stress_net_target_attainment": 0.0005691519635742744,
+          "net_positive_rate": 0.4348321001707456,
+          "net_R_quantiles": [
+            -1.028586748266842,
+            -0.17910797080869176,
+            1.5869289630823658
+          ],
+          "net_R": 0.04937870721172352,
+          "ex_funding_R": 0.06237378746154344,
+          "stress_net_R": 0.03015013781720964,
+          "mean_ci": {
+            "estimate": 0.04937870721172352,
+            "ci95": [
+              -0.06483186074365867,
+              0.1595898105108472
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.06483186074365867,
+                  0.1595898105108472
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.04632803199055754,
+                  0.15571284918757083
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0423305085320286,
+                  0.1465101855140456
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 220,
+          "phase0_net_R": 0.006941055602388244,
+          "phase_mean_range": [
+            0.006941055602388255,
+            0.1350595240037814
+          ],
+          "by_year": {
+            "2020": {
+              "N": 302,
+              "net_R": 0.24401405086642527
+            },
+            "2021": {
+              "N": 365,
+              "net_R": 0.045414021571788254
+            },
+            "2022": {
+              "N": 365,
+              "net_R": -0.10009368694863999
+            },
+            "2023": {
+              "N": 365,
+              "net_R": 0.1449084599095221
+            },
+            "2024": {
+              "N": 360,
+              "net_R": -0.05518712443079708
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "established_trend",
+      "N_overlapping_days": 353,
+      "horizons": {
+        "1": {
+          "continuation": 0.46175637393767704,
+          "q_state_survival": 0.7988668555240793,
+          "return_quantiles": [
+            -0.033391498625204984,
+            -0.0017778972429152162,
+            0.04903361881407286
+          ],
+          "mean_gross": 0.0027643551644450323,
+          "mean_net": 0.0011339310312907525,
+          "continuation_uncertainty": {
+            "estimate": 0.46175637393767704,
+            "ci95": [
+              0.3950931731104145,
+              0.5161490570159469
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.40604654795376444,
+                  0.5083636896537286
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4007435109613742,
+                  0.5087870065789474
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.3950931731104145,
+                  0.5161490570159469
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.0011339310312907538,
+            "ci95": [
+              -0.0037497422388354735,
+              0.0050322060021355626
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0028780569823571916,
+                  0.004730802505772376
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0034326021526002106,
+                  0.0050322060021355626
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0037497422388354735,
+                  0.004892648738134656
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.5127478753541076,
+          "q_state_survival": 0.623229461756374,
+          "return_quantiles": [
+            -0.06504962040875546,
+            0.002543873523032536,
+            0.08670980332713076
+          ],
+          "mean_gross": 0.007539759698332386,
+          "mean_net": 0.004696711545560959,
+          "continuation_uncertainty": {
+            "estimate": 0.5127478753541076,
+            "ci95": [
+              0.419003848673436,
+              0.5847006488254429
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.4348625983391608,
+                  0.576601302973618
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4295291257959043,
+                  0.5847006488254429
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.419003848673436,
+                  0.584396232581819
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.004696711545560958,
+            "ci95": [
+              -0.008096277752581474,
+              0.014966204784866884
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.005952274391043626,
+                  0.013960303480222768
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.007554911740290619,
+                  0.014966204784866884
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.008096277752581474,
+                  0.014776271078265886
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.5609065155807366,
+          "q_state_survival": 0.4192634560906516,
+          "return_quantiles": [
+            -0.08827157101175444,
+            0.007931516303294694,
+            0.12551428643760862
+          ],
+          "mean_gross": 0.016126176570966117,
+          "mean_net": 0.01108568146376619,
+          "continuation_uncertainty": {
+            "estimate": 0.5609065155807366,
+            "ci95": [
+              0.44240841248303936,
+              0.6642710659058959
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.44629046249372234,
+                  0.651095504861429
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.44240841248303936,
+                  0.6642710659058959
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.44314679327521794,
+                  0.6624190057254573
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.011085681463766187,
+            "ci95": [
+              -0.012081378793177505,
+              0.03263981100963512
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.009523793052895007,
+                  0.029127334704110105
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.012081378793177505,
+                  0.031419889353379284
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.012022046676555502,
+                  0.03263981100963512
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.06232294617563739,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.45042492917847027,
+          "net_R_quantiles": [
+            -1.050983310214876,
+            -0.10421908300972957,
+            1.8435704006700901
+          ],
+          "net_R": 0.10917765793523718,
+          "ex_funding_R": 0.1493014206953692,
+          "stress_net_R": 0.09078573676326669,
+          "mean_ci": {
+            "estimate": 0.10917765793523723,
+            "ci95": [
+              -0.1705601202896115,
+              0.3539894034345458
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.13696475166319103,
+                  0.33863970260062054
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.1705601202896115,
+                  0.3515179191665249
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.16987932176406617,
+                  0.3539894034345458
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 42,
+          "phase0_net_R": 0.14926610527484385,
+          "phase_mean_range": [
+            -0.07156228989553358,
+            0.211958142505294
+          ],
+          "by_year": {
+            "2020": {
+              "N": 83,
+              "net_R": 0.6121867025147794
+            },
+            "2021": {
+              "N": 73,
+              "net_R": -0.06255993956465476
+            },
+            "2022": {
+              "N": 45,
+              "net_R": -0.2657555996336226
+            },
+            "2023": {
+              "N": 77,
+              "net_R": 0.055592146527527475
+            },
+            "2024": {
+              "N": 75,
+              "net_R": -0.0003533435796634787
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.019830028328611898,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.45042492917847027,
+          "net_R_quantiles": [
+            -1.050983310214876,
+            -0.10421908300972957,
+            1.8076514840496496
+          ],
+          "net_R": 0.13519314003591296,
+          "ex_funding_R": 0.17755611356245074,
+          "stress_net_R": 0.11680078281394357,
+          "mean_ci": {
+            "estimate": 0.13519314003591296,
+            "ci95": [
+              -0.16052315663445701,
+              0.39672677506130105
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.12551876707302004,
+                  0.3721095468116817
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.16052315663445701,
+                  0.38407656312722854
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.1551838915157071,
+                  0.39672677506130105
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 42,
+          "phase0_net_R": 0.09342066706859838,
+          "phase_mean_range": [
+            -0.018962285685007105,
+            0.26746838744393864
+          ],
+          "by_year": {
+            "2020": {
+              "N": 83,
+              "net_R": 0.67125185888828
+            },
+            "2021": {
+              "N": 73,
+              "net_R": -0.04806624375058091
+            },
+            "2022": {
+              "N": 45,
+              "net_R": -0.29113163598652975
+            },
+            "2023": {
+              "N": 77,
+              "net_R": 0.10696928233326657
+            },
+            "2024": {
+              "N": 75,
+              "net_R": 0.005098650912996883
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "neutral",
+      "N_overlapping_days": 1334,
+      "horizons": {
+        "1": {
+          "continuation": 0.46851574212893554,
+          "q_state_survival": 0.04572713643178411,
+          "return_quantiles": [
+            -0.03468705856773452,
+            -0.001412745729266418,
+            0.034410778956222125
+          ],
+          "mean_gross": -0.00041622040431300075,
+          "mean_net": -0.0016702174009815133,
+          "continuation_uncertainty": {
+            "estimate": 0.46851574212893554,
+            "ci95": [
+              0.4444385216773276,
+              0.4937781748213304
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.4444385216773276,
+                  0.4925791871779298
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4450736118049083,
+                  0.4937781748213304
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4462091014093407,
+                  0.4932389370513268
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.001670217400981514,
+            "ci95": [
+              -0.003161479959380202,
+              -0.0002639026431559
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.003161479959380202,
+                  -0.00029346560385341456
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0031441926093714483,
+                  -0.0002639026431559
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0029174496104790726,
+                  -0.0003375887130953446
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.4827586206896552,
+          "q_state_survival": 0.021739130434782608,
+          "return_quantiles": [
+            -0.061475840731409145,
+            -0.0015005213727541378,
+            0.06531797209157035
+          ],
+          "mean_gross": 0.0008214660791762878,
+          "mean_net": -0.0005738611022201615,
+          "continuation_uncertainty": {
+            "estimate": 0.4827586206896552,
+            "ci95": [
+              0.45610414312406994,
+              0.513256116409168
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.45610414312406994,
+                  0.512236522859959
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4573813981825323,
+                  0.513256116409168
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.45770099234715333,
+                  0.5116814741084814
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0005738611022201619,
+            "ci95": [
+              -0.0040299771261500085,
+              0.003346850293712404
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0040299771261500085,
+                  0.003122797331483167
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0038659218709109966,
+                  0.003346850293712404
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0037729078099603347,
+                  0.003206770751656202
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.47226386806596704,
+          "q_state_survival": 0.011244377811094454,
+          "return_quantiles": [
+            -0.09996927377879028,
+            -0.005162305199380379,
+            0.10969708744270411
+          ],
+          "mean_gross": -0.0015343050708333836,
+          "mean_net": -0.0032031650030554986,
+          "continuation_uncertainty": {
+            "estimate": 0.47226386806596704,
+            "ci95": [
+              0.4353029149880974,
+              0.5054477477875862
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.4353029149880974,
+                  0.5053913570274637
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.43907857248278653,
+                  0.5054477477875862
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4442761331845082,
+                  0.5052047333265882
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0032031650030554986,
+            "ci95": [
+              -0.009803924156354563,
+              0.003621791106039646
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.009803924156354563,
+                  0.003621791106039646
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.009100290001627105,
+                  0.0032648354022376765
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.008170235271253374,
+                  0.0029619178661661077
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.06296851574212893,
+          "net_target_attainment": 0.01199400299850075,
+          "stress_net_target_attainment": 0.004497751124437781,
+          "net_positive_rate": 0.44152923538230887,
+          "net_R_quantiles": [
+            -1.024770505099449,
+            -0.1793931511635864,
+            1.4798833522222425
+          ],
+          "net_R": 0.022070119173824194,
+          "ex_funding_R": 0.02790825179995336,
+          "stress_net_R": 0.002537506731938203,
+          "mean_ci": {
+            "estimate": 0.022070119173824194,
+            "ci95": [
+              -0.07644927943693444,
+              0.12326996761389936
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.07644927943693444,
+                  0.12326996761389936
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.05841287431087876,
+                  0.11171103375838054
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.05138505369203889,
+                  0.10807274280303693
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 168,
+          "phase0_net_R": 0.011054242788125437,
+          "phase_mean_range": [
+            -0.03074173318692531,
+            0.1607083937689074
+          ],
+          "by_year": {
+            "2020": {
+              "N": 216,
+              "net_R": 0.04182227401437348
+            },
+            "2021": {
+              "N": 276,
+              "net_R": 0.0653685722563036
+            },
+            "2022": {
+              "N": 298,
+              "net_R": -0.05612128395690489
+            },
+            "2023": {
+              "N": 276,
+              "net_R": 0.08271712106747212
+            },
+            "2024": {
+              "N": 268,
+              "net_R": -0.013953660251595673
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.020239880059970013,
+          "net_target_attainment": 0.004497751124437781,
+          "stress_net_target_attainment": 0.0007496251874062968,
+          "net_positive_rate": 0.4407796101949025,
+          "net_R_quantiles": [
+            -1.024770505099449,
+            -0.1793931511635864,
+            1.4519682346542484
+          ],
+          "net_R": 0.046595262009375554,
+          "ex_funding_R": 0.05361260148701486,
+          "stress_net_R": 0.027041192194523337,
+          "mean_ci": {
+            "estimate": 0.046595262009375554,
+            "ci95": [
+              -0.061138900757554154,
+              0.1667537769999943
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.061138900757554154,
+                  0.1667537769999943
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.041745879497692415,
+                  0.1463798354444581
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.02650757456335076,
+                  0.12740031102099816
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 168,
+          "phase0_net_R": 0.032374707405771065,
+          "phase_mean_range": [
+            -0.009720043134471218,
+            0.18968418904820358
+          ],
+          "by_year": {
+            "2020": {
+              "N": 216,
+              "net_R": 0.09237696603585685
+            },
+            "2021": {
+              "N": 276,
+              "net_R": 0.07184984192184968
+            },
+            "2022": {
+              "N": 298,
+              "net_R": -0.06532057919496521
+            },
+            "2023": {
+              "N": 276,
+              "net_R": 0.17798081684253642
+            },
+            "2024": {
+              "N": 268,
+              "net_R": -0.027175650604884354
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "new_threshold_crossing",
+      "N_overlapping_days": 66,
+      "horizons": {
+        "1": {
+          "continuation": 0.3939393939393939,
+          "q_state_survival": 0.5303030303030303,
+          "return_quantiles": [
+            -0.03702474388679622,
+            -0.0041660776136901445,
+            0.050750912963720474
+          ],
+          "mean_gross": -0.0006264305706528963,
+          "mean_net": -0.0020349156134927366,
+          "continuation_uncertainty": {
+            "estimate": 0.3939393939393939,
+            "ci95": [
+              0.2602486047691527,
+              0.5362876254180602
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.2812362938596491,
+                  0.5151515151515151
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.273972602739726,
+                  0.5313745471014492
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.2602486047691527,
+                  0.5362876254180602
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.002034915613492737,
+            "ci95": [
+              -0.012340893431813072,
+              0.008412202022101897
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.012210750985475433,
+                  0.008300112077481079
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.012244794450791975,
+                  0.008282290793253913
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.012340893431813072,
+                  0.008412202022101897
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.45454545454545453,
+          "q_state_survival": 0.3484848484848485,
+          "return_quantiles": [
+            -0.06412066248579346,
+            -0.004888497640529121,
+            0.09559229512673306
+          ],
+          "mean_gross": 0.010756549176715001,
+          "mean_net": 0.008766598176316929,
+          "continuation_uncertainty": {
+            "estimate": 0.45454545454545453,
+            "ci95": [
+              0.3384558823529412,
+              0.5901985684599399
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.3387096774193548,
+                  0.5738330091692135
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.3384558823529412,
+                  0.575412029109589
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.3392781476997579,
+                  0.5901985684599399
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.008766598176316929,
+            "ci95": [
+              -0.010219382706988852,
+              0.027438001019431776
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.008203926516683007,
+                  0.02698463168261801
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.008419190137024078,
+                  0.027438001019431776
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.010219382706988852,
+                  0.027014511970656702
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.5151515151515151,
+          "q_state_survival": 0.18181818181818182,
+          "return_quantiles": [
+            -0.10518808292258885,
+            0.002067033901684723,
+            0.12182047582817734
+          ],
+          "mean_gross": 0.006096864640682012,
+          "mean_net": 0.0030598156469683747,
+          "continuation_uncertainty": {
+            "estimate": 0.5151515151515151,
+            "ci95": [
+              0.379287045666356,
+              0.6482142857142856
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.379287045666356,
+                  0.6482142857142856
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.38233957219251336,
+                  0.6394565461486638
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.38595864661654133,
+                  0.6301527924130663
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.0030598156469683747,
+            "ci95": [
+              -0.021722582242759015,
+              0.027356572172358467
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.020954491943564208,
+                  0.026290787273602113
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.020308848063790717,
+                  0.027356572172358467
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.021722582242759015,
+                  0.027042202698813616
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.09090909090909091,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.3939393939393939,
+          "net_R_quantiles": [
+            -1.0328865073471456,
+            -0.11497519921359517,
+            2.316658579502815
+          ],
+          "net_R": 0.11998982317410278,
+          "ex_funding_R": 0.14066813437069106,
+          "stress_net_R": 0.1004630226413434,
+          "mean_ci": {
+            "estimate": 0.11998982317410278,
+            "ci95": [
+              -0.19888547466407064,
+              0.4923577943768681
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.1985812158673424,
+                  0.4810989013345493
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.1955862348700699,
+                  0.4923577943768681
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.19888547466407064,
+                  0.4710582299303387
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 7,
+          "phase0_net_R": -0.29763535098858684,
+          "phase_mean_range": [
+            -0.5425103919369016,
+            0.8174659467882265
+          ],
+          "by_year": {
+            "2020": {
+              "N": 14,
+              "net_R": 0.8805183787544058
+            },
+            "2021": {
+              "N": 13,
+              "net_R": -0.19927641856726375
+            },
+            "2022": {
+              "N": 15,
+              "net_R": 0.01510673391434681
+            },
+            "2023": {
+              "N": 15,
+              "net_R": -0.22354809008435356
+            },
+            "2024": {
+              "N": 9,
+              "net_R": 0.14547609009484785
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.030303030303030304,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.3939393939393939,
+          "net_R_quantiles": [
+            -1.0328865073471456,
+            -0.11497519921359517,
+            1.980693954466384
+          ],
+          "net_R": 0.1520962181918602,
+          "ex_funding_R": 0.1740468799553704,
+          "stress_net_R": 0.1325649874255641,
+          "mean_ci": {
+            "estimate": 0.1520962181918602,
+            "ci95": [
+              -0.1982660006281695,
+              0.5512833376449594
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.18555201832522197,
+                  0.5381338347294684
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.1982660006281695,
+                  0.5512833376449594
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.19196262279727055,
+                  0.5346054957502739
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 7,
+          "phase0_net_R": -0.29763535098858684,
+          "phase_mean_range": [
+            -0.5425103919369016,
+            0.9883044942629515
+          ],
+          "by_year": {
+            "2020": {
+              "N": 14,
+              "net_R": 1.0303917088925414
+            },
+            "2021": {
+              "N": 13,
+              "net_R": -0.19927641856726375
+            },
+            "2022": {
+              "N": 15,
+              "net_R": -0.061021375144374626
+            },
+            "2023": {
+              "N": 15,
+              "net_R": -0.09052114828094275
+            },
+            "2024": {
+              "N": 9,
+              "net_R": 0.052955307657931536
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "compression",
+      "N_overlapping_days": 710,
+      "horizons": {
+        "1": {
+          "continuation": 0.43802816901408453,
+          "q_state_survival": 0.15774647887323945,
+          "return_quantiles": [
+            -0.033353733733352486,
+            -0.0024897291484371475,
+            0.035394683702300346
+          ],
+          "mean_gross": -0.00015840054510533443,
+          "mean_net": -0.0014448922886030795,
+          "continuation_uncertainty": {
+            "estimate": 0.43802816901408453,
+            "ci95": [
+              0.40490755868231526,
+              0.47441415919467517
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.40490755868231526,
+                  0.47401087498109273
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4049198613365196,
+                  0.47441415919467517
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.40749909025420894,
+                  0.47236065219405243
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0014448922886030795,
+            "ci95": [
+              -0.0036599468596885164,
+              0.0011968164312669226
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0035662706276782118,
+                  0.0008081183716182904
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0035838610808755426,
+                  0.00090205151885239
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0036599468596885164,
+                  0.0011968164312669226
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.46619718309859154,
+          "q_state_survival": 0.11408450704225352,
+          "return_quantiles": [
+            -0.057120722670359045,
+            -0.002884894635658386,
+            0.0713215266313767
+          ],
+          "mean_gross": 0.0006988049027095577,
+          "mean_net": -0.0008285266609561893,
+          "continuation_uncertainty": {
+            "estimate": 0.46619718309859154,
+            "ci95": [
+              0.4262472809085221,
+              0.5109211131137428
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.42774545377832157,
+                  0.5109211131137428
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4262472809085221,
+                  0.5097779094218818
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.42772640214143137,
+                  0.5095218163951791
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0008285266609561885,
+            "ci95": [
+              -0.005913733320529019,
+              0.005432673925884435
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.005622877548630166,
+                  0.004243302988107926
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.005913733320529019,
+                  0.004432486857074819
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.005810497161485761,
+                  0.005432673925884435
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.4619718309859155,
+          "q_state_survival": 0.059154929577464786,
+          "return_quantiles": [
+            -0.09658060622126628,
+            -0.0071424100748448405,
+            0.09597349350261375
+          ],
+          "mean_gross": -0.004307487328860098,
+          "mean_net": -0.00622924232734796,
+          "continuation_uncertainty": {
+            "estimate": 0.4619718309859155,
+            "ci95": [
+              0.4115261502787967,
+              0.5134131493506493
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.41289437585733885,
+                  0.5109454568470962
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4115261502787967,
+                  0.5134131493506493
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.41711910054719564,
+                  0.5072178451674294
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0062292423273479615,
+            "ci95": [
+              -0.015659292631624456,
+              0.0026935404223164395
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.014806471361804702,
+                  0.001714553105990044
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.015659292631624456,
+                  0.0026935404223164395
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.01446812288041908,
+                  0.002657589294450588
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.04507042253521127,
+          "net_target_attainment": 0.007042253521126761,
+          "stress_net_target_attainment": 0.0014084507042253522,
+          "net_positive_rate": 0.4056338028169014,
+          "net_R_quantiles": [
+            -1.0264742262705249,
+            -0.2690648190308025,
+            1.3998954658148226
+          ],
+          "net_R": -0.05775931378068423,
+          "ex_funding_R": -0.0491032449739057,
+          "stress_net_R": -0.07761093264328686,
+          "mean_ci": {
+            "estimate": -0.05775931378068423,
+            "ci95": [
+              -0.17899435087615653,
+              0.07112002164792616
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.17431105425776133,
+                  0.05697798421414752
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.17899435087615653,
+                  0.068843878524987
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.17242050168398718,
+                  0.07112002164792616
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 81,
+          "phase0_net_R": 0.02661751705909951,
+          "phase_mean_range": [
+            -0.14995343200099479,
+            0.11278566136827418
+          ],
+          "by_year": {
+            "2020": {
+              "N": 132,
+              "net_R": -0.09127564604879344
+            },
+            "2021": {
+              "N": 113,
+              "net_R": -0.006221708969231555
+            },
+            "2022": {
+              "N": 167,
+              "net_R": -0.09439740948233796
+            },
+            "2023": {
+              "N": 164,
+              "net_R": 0.03357728260004838
+            },
+            "2024": {
+              "N": 134,
+              "net_R": -0.1343282190685029
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.011267605633802818,
+          "net_target_attainment": 0.0028169014084507044,
+          "stress_net_target_attainment": 0.0014084507042253522,
+          "net_positive_rate": 0.4056338028169014,
+          "net_R_quantiles": [
+            -1.0264742262705249,
+            -0.2690648190308025,
+            1.3937415795206958
+          ],
+          "net_R": -0.0383325783123706,
+          "ex_funding_R": -0.028598212782248847,
+          "stress_net_R": -0.05819093768476439,
+          "mean_ci": {
+            "estimate": -0.03833257831237062,
+            "ci95": [
+              -0.16609861224792777,
+              0.10568318078710784
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.16244847652508096,
+                  0.0933035787380703
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.16609861224792777,
+                  0.10568318078710784
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.156331685406904,
+                  0.0944956231602769
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 81,
+          "phase0_net_R": 0.04818708276125011,
+          "phase_mean_range": [
+            -0.1437642885328099,
+            0.14736183438041855
+          ],
+          "by_year": {
+            "2020": {
+              "N": 132,
+              "net_R": -0.0720261516173277
+            },
+            "2021": {
+              "N": 113,
+              "net_R": 0.01746427020222136
+            },
+            "2022": {
+              "N": 167,
+              "net_R": -0.10839990697367652
+            },
+            "2023": {
+              "N": 164,
+              "net_R": 0.09864643431057826
+            },
+            "2024": {
+              "N": 134,
+              "net_R": -0.13251770062296822
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "expansion_today",
+      "N_overlapping_days": 139,
+      "horizons": {
+        "1": {
+          "continuation": 0.4892086330935252,
+          "q_state_survival": 0.28776978417266186,
+          "return_quantiles": [
+            -0.0384700597506667,
+            -0.0005578791349901691,
+            0.038715958281677225
+          ],
+          "mean_gross": -0.00042437547202278257,
+          "mean_net": -0.0018620020761110556,
+          "continuation_uncertainty": {
+            "estimate": 0.4892086330935252,
+            "ci95": [
+              0.3945578231292517,
+              0.5815735154017148
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.39872822879984776,
+                  0.5748215600747748
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4,
+                  0.5815735154017148
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.3945578231292517,
+                  0.5797101449275363
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.001862002076111056,
+            "ci95": [
+              -0.00906070761103017,
+              0.004935450088415648
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.00906070761103017,
+                  0.00458620505858367
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.008087870268751102,
+                  0.004935450088415648
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.008409288641046902,
+                  0.004020303124907102
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.4892086330935252,
+          "q_state_survival": 0.22302158273381295,
+          "return_quantiles": [
+            -0.05542537010466386,
+            -0.0015738689745505852,
+            0.07003349703930464
+          ],
+          "mean_gross": 0.004497811559236276,
+          "mean_net": 0.002617426506239643,
+          "continuation_uncertainty": {
+            "estimate": 0.4892086330935252,
+            "ci95": [
+              0.39864483844747,
+              0.5759801631127346
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.39864483844747,
+                  0.5714544513457557
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4028436341835622,
+                  0.5759801631127346
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4084118504128218,
+                  0.5744720546205145
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.0026174265062396443,
+            "ci95": [
+              -0.00786365807023972,
+              0.013054371696897545
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.007762801809859586,
+                  0.012163221348169237
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.00786365807023972,
+                  0.013054371696897545
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.007632355505744941,
+                  0.012927012352333567
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.5179856115107914,
+          "q_state_survival": 0.16546762589928057,
+          "return_quantiles": [
+            -0.08362914893785746,
+            0.002594327825666376,
+            0.1283070893629439
+          ],
+          "mean_gross": 0.011987745308816388,
+          "mean_net": 0.009371796732195892,
+          "continuation_uncertainty": {
+            "estimate": 0.5179856115107914,
+            "ci95": [
+              0.42857142857142855,
+              0.6058509109718949
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.42857142857142855,
+                  0.603902867965368
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.44202477249747224,
+                  0.6058509109718949
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4402758932609679,
+                  0.602579365079365
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.009371796732195894,
+            "ci95": [
+              -0.006869327921518921,
+              0.02559478361475334
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.006869327921518921,
+                  0.02559478361475334
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.00585724409584224,
+                  0.024642454155088388
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.004685892108829496,
+                  0.024031038728940083
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.1223021582733813,
+          "net_target_attainment": 0.02158273381294964,
+          "stress_net_target_attainment": 0.007194244604316547,
+          "net_positive_rate": 0.43884892086330934,
+          "net_R_quantiles": [
+            -1.0315547019248488,
+            -0.12038230686346227,
+            2.9118426613204114
+          ],
+          "net_R": 0.1827649569886973,
+          "ex_funding_R": 0.19714707841157553,
+          "stress_net_R": 0.16232201524469972,
+          "mean_ci": {
+            "estimate": 0.18276495698869727,
+            "ci95": [
+              -0.07025365467876411,
+              0.44270420746835404
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.07025365467876411,
+                  0.44270420746835404
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.04587531895352661,
+                  0.4416723801005435
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.04136649863280922,
+                  0.41028548011398575
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 16,
+          "phase0_net_R": 0.16804476259996112,
+          "phase_mean_range": [
+            -0.08617614999662702,
+            0.5474814640535
+          ],
+          "by_year": {
+            "2020": {
+              "N": 18,
+              "net_R": 0.15152817704027244
+            },
+            "2021": {
+              "N": 25,
+              "net_R": 0.14181079219299617
+            },
+            "2022": {
+              "N": 29,
+              "net_R": 0.0006524750035884198
+            },
+            "2023": {
+              "N": 37,
+              "net_R": 0.30181392745926683
+            },
+            "2024": {
+              "N": 30,
+              "net_R": 0.26485049795940574
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.06474820143884892,
+          "net_target_attainment": 0.014388489208633094,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.43884892086330934,
+          "net_R_quantiles": [
+            -1.0315547019248488,
+            -0.12038230686346227,
+            2.322643408669742
+          ],
+          "net_R": 0.2844155330078631,
+          "ex_funding_R": 0.3019608999227788,
+          "stress_net_R": 0.2639066533318268,
+          "mean_ci": {
+            "estimate": 0.2844155330078631,
+            "ci95": [
+              -0.03316104514109122,
+              0.6423871127161053
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.03316104514109122,
+                  0.6423871127161053
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.025386310668604316,
+                  0.6412477617476541
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.005388915434057635,
+                  0.608692420060778
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 16,
+          "phase0_net_R": 0.24518241072202382,
+          "phase_mean_range": [
+            -0.020238591758645116,
+            0.7709623130006268
+          ],
+          "by_year": {
+            "2020": {
+              "N": 18,
+              "net_R": 0.36800699666790393
+            },
+            "2021": {
+              "N": 25,
+              "net_R": 0.19159182804778824
+            },
+            "2022": {
+              "N": 29,
+              "net_R": -0.026425893172892272
+            },
+            "2023": {
+              "N": 37,
+              "net_R": 0.5918831365188578
+            },
+            "2024": {
+              "N": 30,
+              "net_R": 0.23288374325640435
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "high_volume",
+      "N_overlapping_days": 290,
+      "horizons": {
+        "1": {
+          "continuation": 0.45517241379310347,
+          "q_state_survival": 0.3758620689655172,
+          "return_quantiles": [
+            -0.033129083975238297,
+            -0.002398856474863542,
+            0.047110667216969014
+          ],
+          "mean_gross": 0.0006899476873469571,
+          "mean_net": -0.000690107828125583,
+          "continuation_uncertainty": {
+            "estimate": 0.45517241379310347,
+            "ci95": [
+              0.38996138996138996,
+              0.5170126671358198
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.38996138996138996,
+                  0.5088403469322197
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.39260593499144625,
+                  0.514405770642748
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.3920244484197973,
+                  0.5170126671358198
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.000690107828125583,
+            "ci95": [
+              -0.00463173578267435,
+              0.0029495202030925443
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.004472616028996482,
+                  0.0027515284211050484
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.00463173578267435,
+                  0.0029495202030925443
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.004072518036253807,
+                  0.0028818034956679685
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.5137931034482759,
+          "q_state_survival": 0.3137931034482759,
+          "return_quantiles": [
+            -0.0602968947117528,
+            0.0026756426993168048,
+            0.0868545712413144
+          ],
+          "mean_gross": 0.007868034183414417,
+          "mean_net": 0.006007197746141769,
+          "continuation_uncertainty": {
+            "estimate": 0.5137931034482759,
+            "ci95": [
+              0.45419642857142856,
+              0.5738449451368914
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.45419642857142856,
+                  0.570400506999536
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.45421723604035563,
+                  0.570085458312212
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4557777164920022,
+                  0.5738449451368914
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.006007197746141769,
+            "ci95": [
+              -0.0021885543619793164,
+              0.014111418972736503
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.0021885543619793164,
+                  0.014078785095822693
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.0020140133093426247,
+                  0.014111418972736503
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.001589814775183542,
+                  0.013832795504358309
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.5310344827586206,
+          "q_state_survival": 0.23103448275862068,
+          "return_quantiles": [
+            -0.09917237250398953,
+            0.004500063875430227,
+            0.12159132175361208
+          ],
+          "mean_gross": 0.008173030706829433,
+          "mean_net": 0.005448006457062008,
+          "continuation_uncertainty": {
+            "estimate": 0.5310344827586206,
+            "ci95": [
+              0.4460124876687279,
+              0.6109456669610253
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.44841234536519237,
+                  0.6102259051248621
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4460124876687279,
+                  0.6096398349461689
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4578354155350353,
+                  0.6109456669610253
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.005448006457062006,
+            "ci95": [
+              -0.01061119274539048,
+              0.021042773267118106
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.01061119274539048,
+                  0.020631273633118112
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.009434171815609833,
+                  0.020341492746444652
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.008107827832373083,
+                  0.021042773267118106
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.09310344827586207,
+          "net_target_attainment": 0.013793103448275862,
+          "stress_net_target_attainment": 0.006896551724137931,
+          "net_positive_rate": 0.46551724137931033,
+          "net_R_quantiles": [
+            -1.032045666648142,
+            -0.10317904491128244,
+            2.423782855385006
+          ],
+          "net_R": 0.1489440042996181,
+          "ex_funding_R": 0.16467961667481712,
+          "stress_net_R": 0.13019442856572028,
+          "mean_ci": {
+            "estimate": 0.1489440042996181,
+            "ci95": [
+              -0.070492911253638,
+              0.35002625350962463
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.070492911253638,
+                  0.3466698432190166
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.046066238593023064,
+                  0.34410423831636805
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.045320055326988046,
+                  0.35002625350962463
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 28,
+          "phase0_net_R": 0.40774610114126997,
+          "phase_mean_range": [
+            0.00041376110633294355,
+            0.4077461011412699
+          ],
+          "by_year": {
+            "2020": {
+              "N": 58,
+              "net_R": 0.29684226266614033
+            },
+            "2021": {
+              "N": 47,
+              "net_R": 0.21855154474074331
+            },
+            "2022": {
+              "N": 58,
+              "net_R": -0.2547569155366172
+            },
+            "2023": {
+              "N": 64,
+              "net_R": 0.30015933682503537
+            },
+            "2024": {
+              "N": 63,
+              "net_R": 0.17889985640888423
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.03103448275862069,
+          "net_target_attainment": 0.0034482758620689655,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.46551724137931033,
+          "net_R_quantiles": [
+            -1.032045666648142,
+            -0.10317904491128244,
+            1.9014627854554433
+          ],
+          "net_R": 0.16567393293360114,
+          "ex_funding_R": 0.18354286330582614,
+          "stress_net_R": 0.146892625569035,
+          "mean_ci": {
+            "estimate": 0.16567393293360114,
+            "ci95": [
+              -0.07526207555695884,
+              0.40545785715337224
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.07526207555695884,
+                  0.4044437152555699
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.060343275885030676,
+                  0.3907963246328644
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.04306067407084388,
+                  0.40545785715337224
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 28,
+          "phase0_net_R": 0.26268837439762216,
+          "phase_mean_range": [
+            -0.075341634237102,
+            0.36515984796532036
+          ],
+          "by_year": {
+            "2020": {
+              "N": 58,
+              "net_R": 0.3776919590064168
+            },
+            "2021": {
+              "N": 47,
+              "net_R": 0.1355907043390735
+            },
+            "2022": {
+              "N": 58,
+              "net_R": -0.2598292332272928
+            },
+            "2023": {
+              "N": 64,
+              "net_R": 0.4277529290266106
+            },
+            "2024": {
+              "N": 63,
+              "net_R": 0.11841987133199382
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "reversal_today",
+      "N_overlapping_days": 96,
+      "horizons": {
+        "1": {
+          "continuation": 0.5520833333333334,
+          "q_state_survival": 0.125,
+          "return_quantiles": [
+            -0.035029641687482516,
+            0.0022310675498490307,
+            0.035319949459599986
+          ],
+          "mean_gross": 0.00013020041400162974,
+          "mean_net": -0.0010502388113363254,
+          "continuation_uncertainty": {
+            "estimate": 0.5520833333333334,
+            "ci95": [
+              0.45093037214885956,
+              0.6629272619751626
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.4562890512352206,
+                  0.6505154358023345
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4519230769230769,
+                  0.6629272619751626
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.45093037214885956,
+                  0.6593465045592705
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0010502388113363252,
+            "ci95": [
+              -0.007747942096633387,
+              0.005227696743309775
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.007199558930625749,
+                  0.005227696743309775
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.006824599053830796,
+                  0.005194484129316695
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.007747942096633387,
+                  0.004911021505724135
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.5,
+          "q_state_survival": 0.10416666666666667,
+          "return_quantiles": [
+            -0.04787916266782988,
+            -8.422252171069733e-06,
+            0.04458773176395614
+          ],
+          "mean_gross": 0.00027848939037257436,
+          "mean_net": -0.000824722227784078,
+          "continuation_uncertainty": {
+            "estimate": 0.5,
+            "ci95": [
+              0.3921467556094603,
+              0.6146033653846154
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.3921467556094603,
+                  0.6021957840945384
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.3978042159054615,
+                  0.6023059991809991
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4034677816035415,
+                  0.6146033653846154
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0008247222277840783,
+            "ci95": [
+              -0.010197666234692225,
+              0.00837074579225966
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.009358645648850975,
+                  0.00837074579225966
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.010197666234692225,
+                  0.007609051045703667
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.009956718311415329,
+                  0.00733481512180668
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.40625,
+          "q_state_survival": 0.052083333333333336,
+          "return_quantiles": [
+            -0.08258694548335499,
+            -0.012019746227566297,
+            0.07250973188438437
+          ],
+          "mean_gross": -0.010485544375510936,
+          "mean_net": -0.011235372266029406,
+          "continuation_uncertainty": {
+            "estimate": 0.40625,
+            "ci95": [
+              0.30630170987313843,
+              0.5108756038647343
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.30630170987313843,
+                  0.5108756038647343
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.3229082661290323,
+                  0.5061851851851852
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.31676803394625175,
+                  0.5
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.011235372266029406,
+            "ci95": [
+              -0.02636327528280497,
+              0.004646740900473956
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.026242625238368015,
+                  0.004324384866207118
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.025241059819618113,
+                  0.0032848651765628057
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.02636327528280497,
+                  0.004646740900473956
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.010416666666666666,
+          "net_target_attainment": 0.010416666666666666,
+          "stress_net_target_attainment": 0.010416666666666666,
+          "net_positive_rate": 0.375,
+          "net_R_quantiles": [
+            -1.0254038595473467,
+            -0.2076416594626922,
+            1.0544323895813492
+          ],
+          "net_R": -0.10736887802972057,
+          "ex_funding_R": -0.11137147095489967,
+          "stress_net_R": -0.12492405925340551,
+          "mean_ci": {
+            "estimate": -0.10736887802972057,
+            "ci95": [
+              -0.29075497005588014,
+              0.08986428550035593
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.2784580743405799,
+                  0.07967313797722823
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.27519347658938503,
+                  0.08986428550035593
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.29075497005588014,
+                  0.08877323576389212
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 13,
+          "phase0_net_R": -0.07219712525430147,
+          "phase_mean_range": [
+            -0.2483370871653281,
+            0.3463542918285718
+          ],
+          "by_year": {
+            "2020": {
+              "N": 16,
+              "net_R": -0.012531280857487781
+            },
+            "2021": {
+              "N": 24,
+              "net_R": -0.03605272702393924
+            },
+            "2022": {
+              "N": 22,
+              "net_R": -0.07067688125552846
+            },
+            "2023": {
+              "N": 12,
+              "net_R": -0.30831512483306867
+            },
+            "2024": {
+              "N": 22,
+              "net_R": -0.18122606649729
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.0,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.375,
+          "net_R_quantiles": [
+            -1.0254038595473467,
+            -0.2076416594626922,
+            1.0544323895813492
+          ],
+          "net_R": -0.12131003074556583,
+          "ex_funding_R": -0.1253511080823633,
+          "stress_net_R": -0.1388735963977558,
+          "mean_ci": {
+            "estimate": -0.12131003074556583,
+            "ci95": [
+              -0.2926777788082962,
+              0.06258162820225056
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.28037095868623646,
+                  0.052469688336223695
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.2785748210931551,
+                  0.06000166077643916
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.2926777788082962,
+                  0.06258162820225056
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 13,
+          "phase0_net_R": -0.1751471760790047,
+          "phase_mean_range": [
+            -0.2483370871653281,
+            0.3463542918285718
+          ],
+          "by_year": {
+            "2020": {
+              "N": 16,
+              "net_R": -0.012531280857487781
+            },
+            "2021": {
+              "N": 24,
+              "net_R": -0.09181733788732012
+            },
+            "2022": {
+              "N": 22,
+              "net_R": -0.07067688125552846
+            },
+            "2023": {
+              "N": 12,
+              "net_R": -0.30831512483306867
+            },
+            "2024": {
+              "N": 22,
+              "net_R": -0.18122606649729
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "funding_aligned_gt10bp3d",
+      "N_overlapping_days": 279,
+      "horizons": {
+        "1": {
+          "continuation": 0.5053763440860215,
+          "q_state_survival": 0.4551971326164875,
+          "return_quantiles": [
+            -0.0418123299350605,
+            0.00022230095262854022,
+            0.04789188662947579
+          ],
+          "mean_gross": 0.00251005712245048,
+          "mean_net": 0.0004534391149536369,
+          "continuation_uncertainty": {
+            "estimate": 0.5053763440860215,
+            "ci95": [
+              0.4361416636614978,
+              0.5623383620689655
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.4369727502651546,
+                  0.5623383620689655
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4375,
+                  0.558005875451429
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4361416636614978,
+                  0.562012382591036
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.0004534391149536368,
+            "ci95": [
+              -0.005471508000092466,
+              0.005544987250970857
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.005471508000092466,
+                  0.005200005963247885
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.005080612569492108,
+                  0.00514516969556659
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.005349694644679598,
+                  0.005544987250970857
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.5268817204301075,
+          "q_state_survival": 0.3763440860215054,
+          "return_quantiles": [
+            -0.07596502704804606,
+            0.0026276933362210375,
+            0.09222978935798007
+          ],
+          "mean_gross": 0.007419946160902519,
+          "mean_net": 0.0029663121241568766,
+          "continuation_uncertainty": {
+            "estimate": 0.5268817204301075,
+            "ci95": [
+              0.43433554292929294,
+              0.6022149370964521
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.43433554292929294,
+                  0.6022149370964521
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.45017770328378115,
+                  0.5978597736255838
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.43745635474860334,
+                  0.6014009766651591
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.0029663121241568766,
+            "ci95": [
+              -0.012653182535827387,
+              0.017379079548636843
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.012302403832408052,
+                  0.015184136643701171
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.011600993448116312,
+                  0.01658179411415871
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.012653182535827387,
+                  0.017379079548636843
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.5268817204301075,
+          "q_state_survival": 0.2724014336917563,
+          "return_quantiles": [
+            -0.11533078192303267,
+            0.007184613604161116,
+            0.15133833992174553
+          ],
+          "mean_gross": 0.013428411311444365,
+          "mean_net": 0.004608996031458839,
+          "continuation_uncertainty": {
+            "estimate": 0.5268817204301075,
+            "ci95": [
+              0.4128405061250806,
+              0.6330620499161487
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.41303092265748315,
+                  0.6320863057537168
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4128405061250806,
+                  0.626449843260188
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4191566820276498,
+                  0.6330620499161487
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": 0.004608996031458836,
+            "ci95": [
+              -0.030825396473179938,
+              0.04016088596751738
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.029166035071535156,
+                  0.03316815577164382
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.02938621134136538,
+                  0.036546228195141535
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.030825396473179938,
+                  0.04016088596751738
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.05734767025089606,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.4157706093189964,
+          "net_R_quantiles": [
+            -1.0720533932008298,
+            -0.3331876557643796,
+            1.7786391408789655
+          ],
+          "net_R": -0.00858727379381462,
+          "ex_funding_R": 0.06674358118881152,
+          "stress_net_R": -0.02484768709861432,
+          "mean_ci": {
+            "estimate": -0.008587273793814612,
+            "ci95": [
+              -0.33641342247179845,
+              0.30389576785691635
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.3240537891956239,
+                  0.2803903756122506
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.3295385604513293,
+                  0.30142590333311003
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.33641342247179845,
+                  0.30389576785691635
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 39,
+          "phase0_net_R": 0.03217744492909437,
+          "phase_mean_range": [
+            -0.23233557122125262,
+            0.18366488276983345
+          ],
+          "by_year": {
+            "2020": {
+              "N": 74,
+              "net_R": 0.023459619422256734
+            },
+            "2021": {
+              "N": 118,
+              "net_R": -0.028459961988728744
+            },
+            "2022": {
+              "N": 3,
+              "net_R": 0.2482856689171539
+            },
+            "2023": {
+              "N": 21,
+              "net_R": 0.0043397427174063415
+            },
+            "2024": {
+              "N": 63,
+              "net_R": -0.02554884626775041
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.010752688172043012,
+          "net_target_attainment": 0.0,
+          "stress_net_target_attainment": 0.0,
+          "net_positive_rate": 0.4157706093189964,
+          "net_R_quantiles": [
+            -1.0720533932008298,
+            -0.3331876557643796,
+            1.7221395451511607
+          ],
+          "net_R": -0.014965403613780398,
+          "ex_funding_R": 0.06307011067443362,
+          "stress_net_R": -0.031223611954285767,
+          "mean_ci": {
+            "estimate": -0.014965403613780398,
+            "ci95": [
+              -0.32980970540018684,
+              0.2843512514142651
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.32562011217952974,
+                  0.2629558198338532
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.321928048154549,
+                  0.27959415398521076
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.32980970540018684,
+                  0.2843512514142651
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 39,
+          "phase0_net_R": -0.027963796216093073,
+          "phase_mean_range": [
+            -0.22960973207620314,
+            0.21698240042891206
+          ],
+          "by_year": {
+            "2020": {
+              "N": 74,
+              "net_R": -0.0007358341849731536
+            },
+            "2021": {
+              "N": 118,
+              "net_R": -0.019493523052903416
+            },
+            "2022": {
+              "N": 3,
+              "net_R": 0.2482856689171539
+            },
+            "2023": {
+              "N": 21,
+              "net_R": -0.06499235414984901
+            },
+            "2024": {
+              "N": 63,
+              "net_R": -0.019058376633630972
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    },
+    {
+      "condition": "funding_opposes_momentum",
+      "N_overlapping_days": 808,
+      "horizons": {
+        "1": {
+          "continuation": 0.4566831683168317,
+          "q_state_survival": 0.0952970297029703,
+          "return_quantiles": [
+            -0.03691636221565459,
+            -0.002151468006005186,
+            0.036014655342990864
+          ],
+          "mean_gross": -0.0009724049075273969,
+          "mean_net": -0.002016069089452805,
+          "continuation_uncertainty": {
+            "estimate": 0.4566831683168317,
+            "ci95": [
+              0.4264468378285274,
+              0.48591950436798004
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.42776813828617,
+                  0.48591950436798004
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.4264468378285274,
+                  0.48226051505020795
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.4318470953416364,
+                  0.4832298136645963
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0020160690894528055,
+            "ci95": [
+              -0.003990714819630106,
+              -4.2840443297546494e-05
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.003990714819630106,
+                  -4.2840443297546494e-05
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.003891339267911368,
+                  -8.976186553650919e-05
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.0037797741198062115,
+                  -0.00023988032509918847
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "3": {
+          "continuation": 0.46163366336633666,
+          "q_state_survival": 0.05198019801980198,
+          "return_quantiles": [
+            -0.06217932818373524,
+            -0.0027186009380091303,
+            0.06608956038697639
+          ],
+          "mean_gross": -0.0006966624305608713,
+          "mean_net": -0.001272826600470363,
+          "continuation_uncertainty": {
+            "estimate": 0.46163366336633666,
+            "ci95": [
+              0.42104218880534666,
+              0.5005757825426764
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.42459678920993194,
+                  0.5005757825426764
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.42104218880534666,
+                  0.5
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.42728506296135477,
+                  0.49699657918144047
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.0012728266004703624,
+            "ci95": [
+              -0.006898132854554532,
+              0.0048708048614723365
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.006867536243043437,
+                  0.0048708048614723365
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.006898132854554532,
+                  0.004378963379159344
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.006559907551955566,
+                  0.004366435453448609
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        },
+        "7": {
+          "continuation": 0.45173267326732675,
+          "q_state_survival": 0.017326732673267328,
+          "return_quantiles": [
+            -0.10834019239330114,
+            -0.007126524288573632,
+            0.09335311055640573
+          ],
+          "mean_gross": -0.006159100124185006,
+          "mean_net": -0.005745963654850091,
+          "continuation_uncertainty": {
+            "estimate": 0.45173267326732675,
+            "ci95": [
+              0.390780010814708,
+              0.5118547961396784
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  0.39218811675926696,
+                  0.5052001918005274
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  0.39397514099739234,
+                  0.5118547961396784
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  0.390780010814708,
+                  0.5049981519290341
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "net_uncertainty": {
+            "estimate": -0.00574596365485009,
+            "ci95": [
+              -0.017507629286705118,
+              0.006462471381909284
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.017359581225805453,
+                  0.0054102557730150705
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.01720534115228397,
+                  0.006462471381909284
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.017507629286705118,
+                  0.005228703559013908
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          }
+        }
+      },
+      "barriers": {
+        "3": {
+          "exit_policy": "gross_3R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.050742574257425746,
+          "net_target_attainment": 0.019801980198019802,
+          "stress_net_target_attainment": 0.007425742574257425,
+          "net_positive_rate": 0.4158415841584158,
+          "net_R_quantiles": [
+            -1.0142700124888824,
+            -0.20350505080232528,
+            1.3212283512346132
+          ],
+          "net_R": -0.027237696643524194,
+          "ex_funding_R": -0.04408710300771105,
+          "stress_net_R": -0.04603251019543369,
+          "mean_ci": {
+            "estimate": -0.027237696643524194,
+            "ci95": [
+              -0.17058020711109742,
+              0.11611070255458776
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.16434169824520395,
+                  0.10472845567805057
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.16920207261659612,
+                  0.11611070255458776
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.17058020711109742,
+                  0.11113129240351116
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 90,
+          "phase0_net_R": 0.02911791576365278,
+          "phase_mean_range": [
+            -0.0984865076628123,
+            0.09814039152797693
+          ],
+          "by_year": {
+            "2020": {
+              "N": 127,
+              "net_R": 0.011537824471584907
+            },
+            "2021": {
+              "N": 169,
+              "net_R": 0.10385792285662693
+            },
+            "2022": {
+              "N": 171,
+              "net_R": 0.09881693766656437
+            },
+            "2023": {
+              "N": 175,
+              "net_R": -0.19089083810689098
+            },
+            "2024": {
+              "N": 166,
+              "net_R": -0.14769368211388775
+            }
+          }
+        },
+        "5": {
+          "exit_policy": "gross_5R_target_or_1R_stop_or_7d_timeout",
+          "gross_barrier_hit": 0.018564356435643563,
+          "net_target_attainment": 0.007425742574257425,
+          "stress_net_target_attainment": 0.0012376237623762376,
+          "net_positive_rate": 0.4146039603960396,
+          "net_R_quantiles": [
+            -1.0142700124888824,
+            -0.20350505080232528,
+            1.2550003506502723
+          ],
+          "net_R": -0.015782943143937994,
+          "ex_funding_R": -0.03248304753633315,
+          "stress_net_R": -0.03458745623236486,
+          "mean_ci": {
+            "estimate": -0.015782943143937984,
+            "ci95": [
+              -0.16266588993009154,
+              0.13603947576160166
+            ],
+            "sensitivity": [
+              {
+                "block_days": 28,
+                "ci95": [
+                  -0.16266588993009154,
+                  0.13603947576160166
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 56,
+                "ci95": [
+                  -0.16022596525776733,
+                  0.1268095875480569
+                ],
+                "nonempty_draws": 1000
+              },
+              {
+                "block_days": 84,
+                "ci95": [
+                  -0.15723561776488468,
+                  0.12962068253631076
+                ],
+                "nonempty_draws": 1000
+              }
+            ]
+          },
+          "phase0_N": 90,
+          "phase0_net_R": 0.02356473387008797,
+          "phase_mean_range": [
+            -0.09837769910229598,
+            0.12311946845480085
+          ],
+          "by_year": {
+            "2020": {
+              "N": 127,
+              "net_R": 0.08156067730918394
+            },
+            "2021": {
+              "N": 169,
+              "net_R": 0.11727363686495432
+            },
+            "2022": {
+              "N": 171,
+              "net_R": 0.0761075130067819
+            },
+            "2023": {
+              "N": 175,
+              "net_R": -0.13248275071722934
+            },
+            "2024": {
+              "N": 166,
+              "net_R": -0.1973492292613862
+            }
+          }
+        }
+      },
+      "status": "AVAILABLE"
+    }
+  ],
+  "daily_days": 1827,
+  "risk_days": 854,
+  "causality_audit": {
+    "future_corruption_checks": 24,
+    "status": "PASS"
+  },
+  "onset_status_counts": {
+    "UNCONFIRMED": 29,
+    "CONFIRMED": 13
+  },
+  "daily_q_counts": {
+    "0.0": 1372,
+    "1.0": 324,
+    "-1.0": 111
+  },
+  "volatility_persistence_spearman": 0.42431373178407367,
+  "runtime_seconds": 93.57730323006399,
+  "engine": "vectorbt 1.1.2",
+  "versions": {
+    "python": "3.12.15",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "sklearn": "1.9.1"
+  },
+  "outputs": {
+    "research_protocol.json": "0d5b27d1f47dc537a0c1fa34b37cd679d49526234cb0c6e1eaf8b667949352f5",
+    "market_observations.csv": "854c4a3a335300c1708bc10ee83ad254b3b7cfe30faec0f130e1bf32e2cb02ee",
+    "h1a_forecasts.csv": "2e49426cb939e4a167f68ea554bcb7bf8514952e8fa74903e2cafe24c0912813",
+    "h1a_onsets.csv": "88c50e4b9dd13c40a71f80509cbfd74e47b7ae1802a0db3ac7d08e1e9410747b"
+  },
+  "limits": {
+    "causal_claim": false,
+    "edge_proven": false,
+    "sealed_data_used": false
+  },
+  "caveats": [
+    "Known historical DEV; unknown prior trial debt",
+    "Overlapping days/conditions are NOT independent N",
+    "Funding settlement mark proxied by 4h open; entry-instant funding omitted",
+    "1BTC unlimited cash, no account/margin/liquidation",
+    "No causal participant identification from OHLCV/funding",
+    "No H1-A economic simulation or sealed data access"
+  ]
+}

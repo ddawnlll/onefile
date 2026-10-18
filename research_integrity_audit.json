@@ -1,0 +1,74 @@
+{
+  "integrity_checks": "PASS; hashes, probabilities, Brier/logloss, lead, confirmation, maturity and DEV bounds",
+  "positive_forecast_rows": 41,
+  "forecast_counts": {
+    "all_eligible": 346,
+    "scored_mature": 340,
+    "censored_unscored": 6
+  },
+  "final_source_sha256": "5f3ec6410594f3c12f94e5356dc0f1d6d5ac0659a999932425fd1ca3b3a3fd1e",
+  "source_snapshot_sha256": "855c83ff1d79f87aa4ca5feee08cd9fbf75b9c2f134f38d487af488870ba5656",
+  "confirmed_onsets_full_dev_by_side": {
+    "1": 9,
+    "-1": 4
+  },
+  "risk_percent_dailyATR_1R_quantiles": {
+    "0.1": 4.221219872808703,
+    "0.5": 6.732527711856941,
+    "0.9": 11.293920830044273
+  },
+  "q_run_lengths_POSTHOC_DESCRIPTIVE": {
+    "-1": {
+      "episodes": 34,
+      "median_days": 2.0,
+      "max_days": 17
+    },
+    "0": {
+      "episodes": 85,
+      "median_days": 9.0,
+      "max_days": 126
+    },
+    "1": {
+      "episodes": 52,
+      "median_days": 2.0,
+      "max_days": 38
+    }
+  },
+  "contemporaneous_volume_absreturn_spearman_POSTHOC": 0.49212101159407284,
+  "daily_return_lag1_correlation_POSTHOC": -0.07766631080380539,
+  "daily_absreturn_lag1_correlation_POSTHOC": 0.14408494129209992,
+  "all_entries_by_side_POSTHOC_DESCRIPTIVE": {
+    "-1": {
+      "N": 1757,
+      "net_R_3": -0.07910396377498,
+      "net_R_5": -0.07344263342529736
+    },
+    "1": {
+      "N": 1757,
+      "net_R_3": 0.12764324135434976,
+      "net_R_5": 0.16501679578372977
+    }
+  },
+  "aligned_entries_by_side_POSTHOC_DESCRIPTIVE": {
+    "-1": {
+      "N": 794,
+      "net_R_3": -0.10613448868084147,
+      "net_R_5": -0.10846182172844379
+    },
+    "1": {
+      "N": 963,
+      "net_R_3": 0.13409051594955582,
+      "net_R_5": 0.1795192887054855
+    }
+  },
+  "final_reproduction_checks": {
+    "all_mature_forecasts_equal_attempt02": true,
+    "all_market_behavior_equal_attempt02": true,
+    "all_model_Brier_logloss_equal_attempt02": true,
+    "relative_Brier_gain_and_CI_equal_attempt02": true
+  },
+  "revision_note": "Three retained runs. After observing the first results, schema/empty-group/protocol text was clarified; then censored forecasts were preserved and alarm denominators corrected to 715 mature calendar days. Final346 forecasts=340 scored+6 censored. All mature forecasts, model losses and market measurements identical to archived attempt02. No label/features/C/temperature/threshold-grid variant selected. These are post-observation methodology corrections, NOT independent validation. Original attempt01 source was not snapshotted; attempt02 and final source snapshots are retained.",
+  "unit_tests_passed": 115,
+  "vectorbt_selftests_passed": 38,
+  "actual_future_corruption_checks_passed": 24
+}

@@ -23,10 +23,13 @@ jobs:
         run: uv sync --frozen --python 3.12
 
       - name: Syntax & compile check
-        run: uv run --no-sync --python 3.12 python -m py_compile one.py
+        run: uv run --no-sync --python 3.12 python -m py_compile one.py tests/test_one.py
 
       - name: Run deterministic safety tests
         run: uv run --no-sync --python 3.12 python one.py --self-test
+
+      - name: Run offline data acceptance and audit regressions
+        run: uv run --no-sync --python 3.12 python -m unittest discover -s tests -v
 
       - name: Set up Node for Pi extension tests
         uses: actions/setup-node@v4

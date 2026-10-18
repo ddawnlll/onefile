@@ -21,27 +21,39 @@
     "actual_8h_settlements": 5481,
     "non_zero_funding_settlements": 5481,
     "file_name": "btc_4h.csv",
-    "file_sha256": "79a9e9900cdd09a3e81b1a2956c02b04f872d7106de979667b72d373f794670a",
-    "code_sha256": "c5e0f9eccf886bdbd95b678236aa29cb484c27e5f5671911ccafa36b31ba7b53",
+    "file_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+    "code_sha256": "65a98791a5a227183f8bf8ae4cd7a3a9c333bde5c442c3687fe269ecbb412156",
     "candle_integrity": "PASS",
     "funding_coverage": "PASS",
     "chronological_bounds": "PASS",
-    "verdict": "PASS"
+    "qc_integrity": "PASS",
+    "qc_error": null,
+    "verdict": "PASS",
+    "feature_history_start": "2020-01-01",
+    "feature_history_bars": 10962,
+    "funding_source_verification": {
+      "status": "VERIFIED",
+      "method": "fresh HTTPS Binance monthly funding comparison",
+      "settlements": 5481,
+      "verified_at_utc": "2026-10-17T23:20:01.155211+00:00"
+    }
   },
   "engine": "vectorbt.Portfolio.from_signals",
   "vectorbt": "1.1.2",
-  "python": "3.14.0",
+  "python": "3.12.15",
   "numpy": "2.5.4",
   "pandas": "3.0.6",
-  "input_sha256": "79a9e9900cdd09a3e81b1a2956c02b04f872d7106de979667b72d373f794670a",
-  "code_sha256": "c5e0f9eccf886bdbd95b678236aa29cb484c27e5f5671911ccafa36b31ba7b53",
+  "input_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+  "code_sha256": "65a98791a5a227183f8bf8ae4cd7a3a9c333bde5c442c3687fe269ecbb412156",
   "split": "DEV [2020-01-01, 2025-01-01)",
   "parameters": {
     "csv": "btc_4h.csv",
     "symbol": "BTCUSDT",
     "target_r": 3.0,
     "download": false,
-    "behavior": false,
+    "offline": false,
+    "trials": null,
+    "behavior": true,
     "unlock_oos": false,
     "self_test": false,
     "out": "brick1_trades.csv",
@@ -54,8 +66,63 @@
   "seed": 42,
   "bootstrap_n": 10000,
   "setup_events": 66,
-  "control_events": 66,
+  "matched_setup_events": 37,
+  "unmatched_setup_events": 29,
+  "matching_policy": "same-month; controls disjoint from ALL setup horizons; outcome-blind common-support subset",
+  "decision_gate": {
+    "verdict": "SCREEN FAIL (not confirmed; do not tune to this sample)",
+    "edge_proven": false,
+    "stats": {
+      "ci_low": -0.4535095928179798,
+      "ci_high": 0.6797907106552484,
+      "delta_ci_low": 0.09298141725278898,
+      "delta_ci_high": 1.4871078545159466,
+      "obs_mean": 0.09780855469031412,
+      "obs_diff": 0.8145302740303964,
+      "p_value": 0.0093990600939906,
+      "adjusted_p_value": null,
+      "trials": null,
+      "calendar_months": 57,
+      "active_months": 36,
+      "block_sensitivity": [
+        {
+          "block_months": 1,
+          "ci_low": -0.4535095928179798,
+          "ci_high": 0.6797907106552484,
+          "delta_ci_low": 0.14666297280227603,
+          "delta_ci_high": 1.4871078545159466,
+          "p_value": 0.0093990600939906
+        },
+        {
+          "block_months": 3,
+          "ci_low": -0.44534788071023784,
+          "ci_high": 0.5770451788868273,
+          "delta_ci_low": 0.14638543962809505,
+          "delta_ci_high": 1.415863681202235,
+          "p_value": 0.0030996900309969004
+        },
+        {
+          "block_months": 6,
+          "ci_low": -0.42728623837455026,
+          "ci_high": 0.5458133465923087,
+          "delta_ci_low": 0.09298141725278898,
+          "delta_ci_high": 1.4708093943915954,
+          "p_value": 0.0058994100589941
+        }
+      ],
+      "method": "paired calendar moving-block bootstrap; centered-null test; 1/3/6 months"
+    },
+    "checks": {
+      "Mean net R > +0.15R": false,
+      "Matched delta >= +0.15R": true,
+      "Mean and paired-delta CI lower bounds > 0": false,
+      "Right-tail MFE asymmetry": false
+    },
+    "source_verified": true
+  },
+  "behavior_sampling": "fixed UTC 43-bar grid; all 43 phases sensitivity, descriptive only",
+  "control_events": 37,
   "bars": 10962,
   "funding": "external per-unit estimate; 4h open proxy, not settlement mark",
-  "simulation": "unlevered independent 1 BTC events; not $500 account performance"
+  "simulation": "fixed 1 BTC event study with unlimited research cash; NOT account performance; no margin/liquidation engine"
 }
