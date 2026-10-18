@@ -699,10 +699,11 @@ def analyze_behavior(x: pd.DataFrame, target_r: float = TARGET_R) -> None:
     # Cache every eligible window once per fixed calendar phase. Each vectorbt
     # batch is disjoint; different phases overlap and are NOT independent trials.
     barrier_rows, free_rows = {}, {}
-    for phase in range(HOLD_BARS + 1):
-        ids = select_non_overlapping(valid, max_idx, x["time"], phase)
-        if not ids:
-            continue
+    # Each mature bar belongs to exactly one UTC phase. Events are independent
+    # vectorbt columns, so bounded batches avoid 43 separate Portfolio builds.
+    eligible_ids = np.flatnonzero(valid.to_numpy()[:max_idx + 1])
+    for first in range(0, len(eligible_ids), 512):
+        ids = eligible_ids[first:first + 512].tolist()
         rows = evaluate_event_matrix(x, ids, (target_r, target_r), side=1, hold_bars=HOLD_BARS,
                                       barriers=(True, False))
         for row in rows:
@@ -1312,10 +1313,11 @@ def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict
     doubled_count = np.concatenate((finite, finite)).astype(float)
     sum_prefix = np.vstack((np.zeros((1, values.shape[1])), np.cumsum(doubled_sum, axis=0)))
     count_prefix = np.vstack((np.zeros((1, values.shape[1])), np.cumsum(doubled_count, axis=0)))
+    starts_by_block = _calendar_block_starts(n)
     for block_i, requested in enumerate((28,56,84)):
         length = min(requested, n)
         nblocks = int(np.ceil(n/length))
-        starts = _calendar_block_starts(n)[block_i]
+        starts = starts_by_block[block_i]
         lengths = np.full(nblocks, length)
         lengths[-1] = n-(nblocks-1)*length
         ends = starts+lengths
@@ -1884,6 +1886,7 @@ def panel_block_interval(frame: pd.DataFrame, columns: list[str], *, ratio: bool
 
 def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_run: int = 365) -> np.ndarray:
     """Online BOCPD: Gaussian mean with Normal-Inverse-Gamma predictive, fixed hazard."""
+    from scipy.special import gammaln
     r = pd.to_numeric(returns, errors="coerce").astype(float)
     scale = np.sqrt(r.pow(2).shift(1).rolling(20, min_periods=10).mean())
     x = (r/scale).clip(-10, 10).to_numpy()
@@ -1898,7 +1901,8 @@ def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_ru
         dof = 2*alpha
         scale2 = beta*(kappa+1)/(alpha*kappa)
         z2 = (obs-mu)**2/(dof*scale2)
-        log_like = (np.fromiter((math.lgamma((v+1)/2)-math.lgamma(v/2) for v in dof), float, count=len(dof))
+        # Vectorized special function avoids hundreds of Python calls per day.
+        log_like = (gammaln((dof+1)/2)-gammaln(dof/2)
                     -.5*np.log(dof*np.pi*scale2)-((dof+1)/2)*np.log1p(z2))
         log_joint = np.log(np.maximum(probs, 1e-300))+log_like
         log_growth = log_joint+math.log1p(-hazard)
