@@ -2825,7 +2825,7 @@ REGIME3_MIN_HISTORY_ALARMS = 10
 REGIME3_FIXED = .70   # declared after 2021-2022 tuning; probability rule, not refit per fold
 REGIME3_POLICIES = ("precision80", "budget", "fixed70")
 # Worker-owned model configs. Changing them must not touch the harness above.
-REGIME3_LOGIT = {"features": REGIME3_BASE, "C": 1., "class_weight": "sqrt"}
+REGIME3_LOGIT = {"features": ["lrw_up", "lrw_down", "need_up", "need_down", "er_proj"], "C": 1., "class_weight": "sqrt"}
 REGIME3_XGB = {"features": REGIME3_BASE, "max_depth": 2, "min_child_weight": 10., "learning_rate": .05,
                "reg_lambda": 10., "reg_alpha": .1, "gamma": .1, "subsample": .8, "colsample_bytree": .8,
                "max_bin": 64, "max_rounds": 256, "class_weight": "sqrt"}
@@ -2853,6 +2853,9 @@ def regime3_features(d: pd.DataFrame) -> pd.DataFrame:
     d["drop_r7"] = (d.r20-d.r1.rolling(20-REGIME_HORIZON).sum())/(sigma*np.sqrt(REGIME_HORIZON))
     kept = d.r1.rolling(20-REGIME_HORIZON).sum()
     d["er_proj"] = kept.abs()/(d.r1.abs().rolling(20-REGIME_HORIZON).sum()+REGIME_HORIZON*d.r1.abs().rolling(20).mean()+1e-12)
+    from scipy.special import logit
+    d["lrw_up"] = logit(d.rw_up.clip(1e-4, 1-1e-4))
+    d["lrw_down"] = logit(d.rw_down.clip(1e-4, 1-1e-4))
     return d
 
 
@@ -2924,6 +2927,37 @@ def _regime3_weights(rows: pd.DataFrame, y: np.ndarray, scheme: str) -> np.ndarr
     return w/w.mean()
 
 
+def _regime3_logit_head(fit: pd.DataFrame, cal: pd.DataFrame, target: Callable, cfg: dict) -> tuple[Callable, dict]:
+    """One regularized logistic head for a binary target, sigmoid-calibrated on the later segment."""
+    from scipy.special import logit
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from threadpoolctl import threadpool_limits
+    cols = cfg["features"]
+    y = target(fit)
+    detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(y, minlength=2).tolist()}
+    if len(fit) < 20 or len(np.unique(y)) < 2:
+        prior = (y.sum()+1)/(len(fit)+2)
+        raw = lambda rows: np.full(len(rows), prior)
+        detail["fallback"] = "smoothed training prior"
+    else:
+        scaler = StandardScaler().fit(fit[cols].to_numpy())
+        model = LogisticRegression(C=cfg["C"], max_iter=500, solver="lbfgs")
+        with threadpool_limits(limits=1):
+            model.fit(scaler.transform(fit[cols].to_numpy()), y, sample_weight=_regime3_weights(fit, y, cfg["class_weight"]))
+        raw = lambda rows: model.predict_proba(scaler.transform(rows[cols].to_numpy()))[:, 1]
+        detail["coef"] = dict(zip(cols, np.round(model.coef_[0], 4).tolist()))
+    cy = target(cal)
+    calibrate = None
+    if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
+        calibrate = LogisticRegression(C=1., solver="lbfgs").fit(logit(np.clip(raw(cal), 1e-6, 1-1e-6))[:, None], cy)
+    detail["calibration"] = "sigmoid on later segment" if calibrate is not None else "identity (<5 per class)"
+    def predict(rows):
+        p = raw(rows)
+        return p if calibrate is None else calibrate.predict_proba(logit(np.clip(p, 1e-6, 1-1e-6))[:, None])[:, 1]
+    return predict, detail
+
+
 def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibration: pd.DataFrame,
                 threads: int = 1) -> tuple[Callable[[pd.DataFrame], np.ndarray], dict]:
     """Return predict(rows)->[none, up, down]. Event/direction heads, sigmoid calibration later.
@@ -2953,6 +2987,21 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
             up, down = rows.mc_up.fillna(0).to_numpy(), rows.mc_down.fillna(0).to_numpy()
             return np.column_stack([1-up-down, up, down])
         return simulated, info
+    if kind == "logistic":
+        # Two direct side heads: P(up onset) on rows not already up, P(down onset) on rows not already down.
+        sides = {}
+        for side, name in ((1, "up"), (-1, "down")):
+            pick = lambda r, s=side: r.loc[r.q.ne(s)]
+            target = lambda r, s=side: r.y.eq(s).to_numpy(int)
+            sides[side], info["heads"][name] = _regime3_logit_head(pick(refit), pick(calibration), target, REGIME3_LOGIT)
+        def logistic(rows):
+            if rows.empty:
+                return np.empty((0, 3))
+            up = np.where(rows.q.eq(1), 0., sides[1](rows))
+            down = np.where(rows.q.eq(-1), 0., sides[-1](rows))
+            total = np.maximum(1., up+down)
+            return np.column_stack([1-(up+down)/total, up/total, down/total])
+        return logistic, info
     heads = []
     for head in ("event", "direction"):
         pick = (lambda r: r) if head == "event" else (lambda r: r.loc[r.y.ne(0)])
@@ -2963,15 +3012,6 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
             prior = (target(fit).sum()+1)/(len(fit)+2)
             raw = lambda rows, prior=prior: np.full(len(rows), prior)
             detail["fallback"] = "smoothed training prior"
-        elif kind == "logistic":
-            cfg = REGIME3_LOGIT; cols = cfg["features"]
-            scaler = StandardScaler().fit(fit[cols].to_numpy())
-            model = LogisticRegression(C=cfg["C"], max_iter=500, solver="lbfgs")
-            with threadpool_limits(limits=1):
-                model.fit(scaler.transform(fit[cols].to_numpy()), target(fit),
-                          sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
-            raw = lambda rows, m=model, s=scaler, c=cols: m.predict_proba(s.transform(rows[c].to_numpy()))[:, 1]
-            detail["coef"] = dict(zip(cols, np.round(model.coef_[0], 4).tolist()))
         elif kind == "xgb":
             from xgboost import XGBClassifier
             cfg = REGIME3_XGB; cols = cfg["features"]
