@@ -3586,6 +3586,7 @@ def regime_return_gate(assets: dict[str, pd.DataFrame], out: Path) -> dict:
               "hit_rate_net_gt0": float((rows.net > 0).mean()), "by_year": years,
               "funding_cost_mean": float(rows.funding_cost.mean()), "cost_per_trade": float(rows.cost.iloc[0]),
               "verdict": "PASS_RETURN_GATE_TUNE" if passed else "NO_RETURN_EDGE_TUNE"}
+    out.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(out, lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
     rows.to_csv(out.with_suffix(".rows.csv"), index=False)
     return result
