@@ -251,15 +251,16 @@ class BehaviorSamplingTests(unittest.TestCase):
                                           self.times[17:].as_unit("ns"))
         self.assertEqual([i for i in before if i >= 17], [i + 17 for i in after])
 
-    def test_behavior_executes_all_phases_and_propagates_target(self):
+    def test_behavior_batches_all_mature_events_and_propagates_target(self):
         frame = one.features(one.validate(market_frame("2020-01-01", "2020-03-01", varying=True)))
         with (patch.object(one, "evaluate_event_matrix", wraps=one.evaluate_event_matrix) as execution,
               contextlib.redirect_stdout(io.StringIO()) as output):
             one.analyze_behavior(frame, target_r=2.)
-        self.assertEqual(execution.call_count, 43)
         self.assertTrue(all(call.args[2] == (2., 2.) and call.kwargs["barriers"] == (True, False)
                             for call in execution.call_args_list))
         sampled = [i for call in execution.call_args_list for i in call.args[1]]
+        self.assertEqual(execution.call_count, (len(sampled) + 511) // 512)
+        self.assertTrue(all(len(call.args[1]) <= 512 for call in execution.call_args_list))
         self.assertEqual(len(sampled), len(set(sampled)))
         expected = np.flatnonzero(frame.atr.notna().to_numpy())
         expected = expected[expected < len(frame) - one.HOLD_BARS]
@@ -282,3 +283,25 @@ class AdditionalReadinessTests(TemporaryFiles):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerformanceAuditContractTests(unittest.TestCase):
+    def test_success_and_failure_always_write_e2e_report(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(one, "main", return_value=None):
+                one._run_with_performance_audit(["--perf-dir", directory, "--offline"])
+            paths = sorted(Path(directory).glob("*.json"))
+            self.assertEqual(len(paths), 1)
+            report = json.loads(paths[0].read_text())
+            self.assertEqual(report["status"], "SUCCESS")
+            self.assertGreater(report["wall_seconds"], 0)
+            self.assertTrue(report["loop_inventory"])
+            with patch.object(one, "main", side_effect=ValueError("synthetic failure")):
+                with self.assertRaisesRegex(ValueError, "synthetic failure"):
+                    one._run_with_performance_audit(["--perf-dir", directory])
+            paths = sorted(Path(directory).glob("*.json"))
+            self.assertEqual(len(paths), 2)
+            self.assertEqual(json.loads(paths[-1].read_text())["status"], "FAIL")
+

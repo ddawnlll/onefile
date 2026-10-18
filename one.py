@@ -23,6 +23,10 @@ Results are exploratory event studies, not independent samples, account returns 
 from __future__ import annotations
 
 import argparse
+import ast
+import inspect
+import sys
+import time
 import concurrent.futures
 import hashlib
 import io
@@ -491,6 +495,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
     Funding at a bar OPEN is charged only if the position already existed before
     that OPEN. An exiting position pays that timestamp; a new entry does not.
     """
+    _function_started = time.perf_counter()
     if side not in (-1, 1) or isinstance(side, bool):
         raise ValueError("side must be +1 or -1")
     if not isinstance(hold_bars, int) or hold_bars < 1:
@@ -535,6 +540,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
     if barriers:
         sl[2*entry_bars] = risk / expected_entry
         tp[2*entry_bars] = target_r * risk / expected_entry
+    _vectorbt_started = time.perf_counter()
     pf = vbt.Portfolio.from_signals(
         close=pd.Series(closes), entries=entries, exits=exits, price=closes,
         open=opens, high=highs, low=lows, size=1.0, size_type="amount",
@@ -544,6 +550,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
         stop_exit_price="stopmarket", use_stops=barriers,
         allow_partial=False, raise_reject=True,
     )
+    _perf_time("evaluate_events.vectorbt_seconds", time.perf_counter() - _vectorbt_started)
     trades = pf.trades.records_arr
     orders = pf.orders.records_arr
     if len(trades) != len(ids) or len(orders) != 2*len(ids):
@@ -594,6 +601,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
 
             "target_before_stop": int(reason == "TARGET"),
         })
+    _perf_time("evaluate_events.total_seconds", time.perf_counter() - _function_started)
     return rows
 
 
@@ -602,6 +610,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
                           barriers: bool | tuple[bool,...] = True) -> list[dict]:
 
     """Run independent event paths as vectorbt columns instead of replaying full history per phase."""
+    _function_started = time.perf_counter()
     if side not in (-1,1) or isinstance(side,bool): raise ValueError("side must be +1 or -1")
     if not isinstance(hold_bars,int) or hold_bars<1: raise ValueError("hold_bars must be positive")
     if not indices: return []
@@ -634,6 +643,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
     sl=np.full((nrows,ncols),np.nan); tp=np.full((nrows,ncols),np.nan)
     sl[2,barrier_cols]=risk[barrier_cols]/entry[barrier_cols]
     tp[2,barrier_cols]=targets[barrier_cols]*risk[barrier_cols]/entry[barrier_cols]
+    _vectorbt_started = time.perf_counter()
     pf=vbt.Portfolio.from_signals(
         close=pd.DataFrame(closes),entries=entries,exits=exits,price=closes,
         open=opens,high=highs,low=lows,size=1.,size_type="amount",
@@ -641,6 +651,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
         fees=FEE_BPS/10_000,slippage=SLIPPAGE_BPS/10_000,sl_stop=sl,tp_stop=tp,
         stop_entry_price="fillprice",stop_exit_price="stopmarket",use_stops=True,
         allow_partial=False,raise_reject=True)
+    _perf_time("evaluate_event_matrix.vectorbt_seconds", time.perf_counter() - _vectorbt_started)
     trades=pf.trades.records_arr
     if len(trades)!=ncols or len(pf.orders.records_arr)!=2*ncols:
         raise RuntimeError("vectorbt matrix did not produce one round trip per event")
@@ -677,6 +688,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
                      "target_before_stop":int(reason=="TARGET"),"funding_usdt_per_btc":funding,
                      "native_pnl_usdt":pnl,"vectorbt_trade_id":int(trade["id"]),
                      "barriers":bool(barrier_cols[col]),"path_MFE_R":mfe,"path_MAE_R":mae,"cost_R":cost_r})
+    _perf_time("evaluate_event_matrix.total_seconds", time.perf_counter() - _function_started)
     return rows
 
 
@@ -696,13 +708,14 @@ def analyze_behavior(x: pd.DataFrame, target_r: float = TARGET_R) -> None:
     """Stage 02: Measure conditional trend, momentum, pullback, volatility, funding & Monograph H1-A behavior."""
     max_idx = len(x) - HOLD_BARS - 1
     valid = x["atr"].notna()
-    # Cache every eligible window once per fixed calendar phase. Each vectorbt
-    # batch is disjoint; different phases overlap and are NOT independent trials.
+    # Cache each eligible event path once. Independent vectorbt columns can be
+    # batched across phases; phase subsets are still NOT independent trials.
     barrier_rows, free_rows = {}, {}
-    for phase in range(HOLD_BARS + 1):
-        ids = select_non_overlapping(valid, max_idx, x["time"], phase)
-        if not ids:
-            continue
+    # Each mature bar belongs to exactly one UTC phase. Events are independent
+    # vectorbt columns, so bounded batches avoid 43 separate Portfolio builds.
+    eligible_ids = np.flatnonzero(valid.to_numpy()[:max_idx + 1])
+    for first in range(0, len(eligible_ids), 512):
+        ids = eligible_ids[first:first + 512].tolist()
         rows = evaluate_event_matrix(x, ids, (target_r, target_r), side=1, hold_bars=HOLD_BARS,
                                       barriers=(True, False))
         for row in rows:
@@ -1265,7 +1278,19 @@ def forecast_losses(y, p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataFrame,
                   years: float) -> dict:
     """One alarm / 7 days; strict signed pre-onset matching, deduplicated events."""
+    _started = time.perf_counter()
     detected, leads, alarms = set(), [], []
+    # Confirmed onsets are chronological in onset_labels(). Index them once per
+    # alarm scan rather than creating a full events DataFrame mask per candidate.
+    confirmed = events.loc[events.status.eq("CONFIRMED")]
+    by_side = {}
+    for event_side in (-1, 1):
+        subset = confirmed.loc[confirmed.side.eq(event_side)]
+        if subset.onset_time.is_monotonic_increasing and subset.onset_time.notna().all():
+            by_side[event_side] = (pd.DatetimeIndex(subset.onset_time).as_unit("ns").asi8,
+                                   subset.onset_i.to_numpy(dtype=int), subset.onset_time.tolist())
+        else:
+            by_side[event_side] = None  # Preserve original order for unusual inputs.
     last = None
     for j, row in enumerate(rows.itertuples()):
         limit = float(threshold[j]) if np.ndim(threshold) else float(threshold)
@@ -1274,17 +1299,27 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
             continue
         last = row.time
         sign = int(H1A_CLASSES[sign_i])
-        matching = events.loc[(events.status == "CONFIRMED") & (events.side == sign) &
-                              (events.onset_time > row.time) &
-                              (events.onset_time <= row.time + pd.Timedelta(days=7))]
-        key = None if matching.empty else int(matching.iloc[0].onset_i)
+        indexed = by_side[sign]
+        if indexed is None:
+            matching = confirmed.loc[confirmed.side.eq(sign) &
+                                     confirmed.onset_time.gt(row.time) &
+                                     confirmed.onset_time.le(row.time + pd.Timedelta(days=7))]
+            key = None if matching.empty else int(matching.iloc[0].onset_i)
+            onset_time = None if matching.empty else matching.iloc[0].onset_time
+        else:
+            times, onset_ids, onset_times = indexed
+            next_i = int(np.searchsorted(times, row.time.value, side="right"))
+            matched = next_i < len(times) and times[next_i] <= (row.time + pd.Timedelta(days=7)).value
+            key = int(onset_ids[next_i]) if matched else None
+            onset_time = onset_times[next_i] if matched else None
         lead_days = None
         if key is not None and key not in detected:
             detected.add(key)
-            lead_days = int((matching.iloc[0].onset_time-row.time).days)
+            lead_days = int((onset_time-row.time).days)
             leads.append(lead_days)
         alarms.append({"time": str(row.time), "side": sign, "matched_onset_i": key, "lead_days": lead_days})
     false = sum(a["matched_onset_i"] is None for a in alarms)
+    _perf_time("h1a.alarm_metrics_seconds", time.perf_counter() - _started)
     return {"alarms": len(alarms), "detected_events": len(detected), "false_alarms": false,
             "false_per_asset_year": false/max(years, 1e-12),
             "precision": (len(alarms)-false)/len(alarms) if alarms else None,
@@ -1303,6 +1338,7 @@ def _calendar_block_starts(n: int) -> tuple[np.ndarray,...]:
 
 def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict:
     """Circular calendar-block CI from block prefix sums; avoids materializing 1000xN indices."""
+    _started = time.perf_counter()
     values = np.asarray(values, dtype=float)
     mean = np.nanmean(values, axis=0)
     estimate = 1-mean[1]/mean[0] if ratio else mean[0]
@@ -1312,10 +1348,11 @@ def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict
     doubled_count = np.concatenate((finite, finite)).astype(float)
     sum_prefix = np.vstack((np.zeros((1, values.shape[1])), np.cumsum(doubled_sum, axis=0)))
     count_prefix = np.vstack((np.zeros((1, values.shape[1])), np.cumsum(doubled_count, axis=0)))
+    starts_by_block = _calendar_block_starts(n)
     for block_i, requested in enumerate((28,56,84)):
         length = min(requested, n)
         nblocks = int(np.ceil(n/length))
-        starts = _calendar_block_starts(n)[block_i]
+        starts = starts_by_block[block_i]
         lengths = np.full(nblocks, length)
         lengths[-1] = n-(nblocks-1)*length
         ends = starts+lengths
@@ -1328,6 +1365,7 @@ def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict
         details.append({"block_days":length,"ci95":ci,"nonempty_draws":len(stat)})
     valid = [row["ci95"] for row in details if row["ci95"][0] is not None]
     ci = [min(row[0] for row in valid),max(row[1] for row in valid)] if len(valid)==3 else [None,None]
+    _perf_time("statistics.calendar_block_seconds", time.perf_counter() - _started)
     return {"estimate":float(estimate),"ci95":ci,"sensitivity":details}
 
 
@@ -1531,6 +1569,7 @@ def mark_to_market_returns(x: pd.DataFrame, indices: list[int], side: int, hold_
 
 def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     """Independent descriptive study. Daily decisions, native 4h execution, no H1-A trades."""
+    _started = time.perf_counter()
     valid = d[H1A_MODELS["M2"] + ["atr", "funding3"]].notna().all(axis=1)
     # vectorbt's 42 bars represent seven days only on an uninterrupted 4h path.
     bad_step = x.time.diff().ne(pd.Timedelta(hours=4)).to_numpy(copy=True)
@@ -1550,6 +1589,7 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
     funding_prefix=np.r_[0.0,np.cumsum((x.open*x.funding_rate).to_numpy())]
     prepared=(open_price,close,funding_prefix)
     observations = []
+    _perf_time("market_observations.preparation_seconds", time.perf_counter() - _started)
     for side in (1, -1):
         a = ds.copy()
         a["side"] = side
@@ -1562,7 +1602,9 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
                 np.all(q_values[i+1:i+h+1]==side) for i in row_ids],dtype=float)
             a.loc[row_ids,f"return_{h}d"]=gross
             a.loc[row_ids,f"net_return_{h}d"]=net
+        _vbt_stage_started = time.perf_counter()
         matrix=evaluate_event_matrix(execution,signal_idx.tolist(),(3.,5.),side=side,hold_bars=HOLD_BARS)
+        _perf_time("market_observations.matrix_seconds", time.perf_counter() - _vbt_stage_started)
         by_event={(row["signal_i"],int(row["target_r"])):row for row in matrix}
         for target in (3,5):
             results=[by_event[(i,target)] for i in signal_idx]
@@ -1588,6 +1630,7 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
         "funding_opposes_momentum": aligned.side*aligned.funding3 < 0,
     }
     summaries = []
+    _summary_started = time.perf_counter()
     for label, mask in conditions.items():
         group = aligned.loc[mask].sort_values("time")
         result = {"condition": label, "N_overlapping_days": len(group), "horizons": {}, "barriers": {}}
@@ -1619,6 +1662,8 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
                 "phase_mean_range": [float(phases.min()), float(phases.max())] if len(group) else [None, None],
                 "by_year": {str(y): {"N": len(g), "net_R": float(g[col].mean())} for y, g in group.groupby(group.time.dt.year)}}
         summaries.append(result)
+    _perf_time("market_observations.summaries_seconds", time.perf_counter() - _summary_started)
+    _perf_time("market_observations.total_seconds", time.perf_counter() - _started)
     return obs, summaries
 
 
@@ -1884,6 +1929,8 @@ def panel_block_interval(frame: pd.DataFrame, columns: list[str], *, ratio: bool
 
 def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_run: int = 365) -> np.ndarray:
     """Online BOCPD: Gaussian mean with Normal-Inverse-Gamma predictive, fixed hazard."""
+    from scipy.special import gammaln
+    _started = time.perf_counter()
     r = pd.to_numeric(returns, errors="coerce").astype(float)
     scale = np.sqrt(r.pow(2).shift(1).rolling(20, min_periods=10).mean())
     x = (r/scale).clip(-10, 10).to_numpy()
@@ -1898,7 +1945,8 @@ def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_ru
         dof = 2*alpha
         scale2 = beta*(kappa+1)/(alpha*kappa)
         z2 = (obs-mu)**2/(dof*scale2)
-        log_like = (np.fromiter((math.lgamma((v+1)/2)-math.lgamma(v/2) for v in dof), float, count=len(dof))
+        # Vectorized special function avoids hundreds of Python calls per day.
+        log_like = (gammaln((dof+1)/2)-gammaln(dof/2)
                     -.5*np.log(dof*np.pi*scale2)-((dof+1)/2)*np.log1p(z2))
         log_joint = np.log(np.maximum(probs, 1e-300))+log_like
         log_growth = log_joint+math.log1p(-hazard)
@@ -1917,6 +1965,7 @@ def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_ru
         alpha = np.concatenate(([3.0], new_alpha[:max_run]))
         beta = np.concatenate(([1.5+.5*.1*obs**2/1.1], new_beta[:max_run]))
         probs = next_prob
+    _perf_time("h1b.bocpd_seconds", time.perf_counter() - _started)
     return output
 
 
@@ -2162,6 +2211,7 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
         stages["total_seconds"]=time.monotonic()-asset_started
         runtime_by_symbol[symbol]=stages
         print(f"Finished {symbol}: {stages['total_seconds']:.2f}s",flush=True)
+    _PERF_CONTEXT["core5_runtime_by_symbol"] = runtime_by_symbol
     forecasts = pd.concat([f for f in h1a_forecasts if not f.empty], ignore_index=True) if any(not f.empty for f in h1a_forecasts) else pd.DataFrame()
     events_all = pd.concat(h1a_events, ignore_index=True) if h1a_events else pd.DataFrame()
     h1b_frame = pd.DataFrame(h1b_rows)
@@ -2284,9 +2334,258 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
     print(f"Saved core-5 outputs and evidence to {args.evidence}; protocol {protocol_path}")
 
 
+
+# Per-invocation performance evidence (kept separate from scientific evidence).
+_PERF_TIMINGS: dict[str, dict] = {}
+_PERF_CONTEXT: dict = {}
+
+
+def _perf_time(label: str, seconds: float) -> None:
+    rec = _PERF_TIMINGS.setdefault(label, {"count": 0, "total_seconds": 0.0,
+                                            "min_seconds": None, "max_seconds": 0.0})
+    rec["count"] += 1
+    rec["total_seconds"] += seconds
+    rec["min_seconds"] = seconds if rec["min_seconds"] is None else min(rec["min_seconds"], seconds)
+    rec["max_seconds"] = max(rec["max_seconds"], seconds)
+
+
+def _loop_catalog() -> list[dict]:
+    """Inventory source loops, including comprehensions; absence of hits is not zero iterations."""
+    class Inventory(ast.NodeVisitor):
+        def __init__(self):
+            self.function = []
+            self.loops = []
+
+        def visit_FunctionDef(self, node):
+            self.function.append(node.name)
+            self.generic_visit(node)
+            self.function.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_For(self, node):
+            self._add(node, "for")
+            self.generic_visit(node)
+
+        def visit_While(self, node):
+            self._add(node, "while")
+            self.generic_visit(node)
+
+        def visit_AsyncFor(self, node):
+            self._add(node, "async-for")
+            self.generic_visit(node)
+
+        def visit_ListComp(self, node):
+            self._add(node, "list-comprehension")
+            self.generic_visit(node)
+
+        def visit_SetComp(self, node):
+            self._add(node, "set-comprehension")
+            self.generic_visit(node)
+
+        def visit_DictComp(self, node):
+            self._add(node, "dict-comprehension")
+            self.generic_visit(node)
+
+        def visit_GeneratorExp(self, node):
+            self._add(node, "generator")
+            self.generic_visit(node)
+
+        def _add(self, node, kind):
+            self.loops.append({"line": node.lineno, "end_line": node.end_lineno,
+                               "function": self.function[-1] if self.function else "<module>",
+                               "kind": kind})
+    visitor = Inventory()
+    visitor.visit(ast.parse(Path(__file__).read_text(encoding="utf-8")))
+    return visitor.loops
+
+
+def _run_with_performance_audit(argv: list[str] | None = None) -> None:
+    """Always persist a run summary, even for failed CLI invocations.
+
+    Pyinstrument samples live stacks when installed. The opt-in line_profiler
+    traces every Python line for exact hit counts; this is intentionally not
+    on by default because line tracing distorts fast runtime measurements.
+    """
+    options = argparse.ArgumentParser(add_help=False)
+    options.add_argument("--perf-dir", default="perf")
+    options.add_argument("--no-perf", action="store_true")
+    options.add_argument("--profile-loops", action="store_true")
+    options.add_argument("--perf-baseline", default=None)
+    opts, _ = options.parse_known_args(sys.argv[1:] if argv is None else argv)
+    if opts.no_perf:
+        main(argv)
+        return
+
+    from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    run_id = f"{stamp}-{os.getpid()}-{time.time_ns() % 1_000_000_000:09d}"
+    base = Path(opts.perf_dir) / run_id
+    pyinstrument_profiler = None
+    line_profiler = None
+    sampling = "unavailable: install pyinstrument"
+    loop_mode = "inventory_only"
+    if opts.profile_loops:
+        from line_profiler import LineProfiler
+        line_profiler = LineProfiler()
+        for value in list(globals().values()):
+            if inspect.isfunction(value) and value.__module__ == __name__:
+                line_profiler.add_function(value)
+        loop_mode = "line_profiler"
+    else:
+        try:
+            from pyinstrument import Profiler
+        except ImportError:
+            pass
+        else:
+            pyinstrument_profiler = Profiler(interval=0.002, async_mode="disabled")
+            sampling = "pyinstrument_2ms"
+    clock_start = time.perf_counter()
+    cpu_start = time.process_time()
+    failure = None
+    started = False
+    try:
+        if line_profiler is not None:
+            line_profiler.enable_by_count()
+            started = True
+        if pyinstrument_profiler is not None:
+            pyinstrument_profiler.start()
+            started = True
+        main(argv)
+    except BaseException as exc:
+        failure = {"type": type(exc).__name__, "message": str(exc)}
+        raise
+    finally:
+        elapsed = time.perf_counter() - clock_start
+        cpu = time.process_time() - cpu_start
+        if line_profiler is not None and started:
+            line_profiler.disable_by_count()
+        if pyinstrument_profiler is not None and started:
+            pyinstrument_profiler.stop()
+        try:
+            base.parent.mkdir(parents=True, exist_ok=True)
+            loops = _loop_catalog()
+            paths = {}
+            if pyinstrument_profiler is not None:
+                try:
+                    html_path = base.with_suffix(".html")
+                    pyinstrument_profiler.write_html(html_path)
+                    paths["flamegraph_html"] = str(html_path)
+                    sample_text = base.with_suffix(".txt")
+                    sample_text.write_text(pyinstrument_profiler.output_text(color=False, show_all=True), encoding="utf-8")
+                    paths["call_tree_text"] = str(sample_text)
+                except Exception as exc:
+                    sampling = f"sample_output_error: {exc}"
+            if line_profiler is not None:
+                raw_path = base.with_suffix(".lprof")
+                line_profiler.dump_stats(str(raw_path))
+                paths["line_profile_lprof"] = str(raw_path)
+                stats = line_profiler.get_stats()
+                by_line = {}
+                for key, values in stats.timings.items():
+                    filename, first_line, fn = key
+                    if Path(filename).resolve() != Path(__file__).resolve():
+                        continue
+                    for lineno, hits, ticks in values:
+                        by_line.setdefault((fn, lineno), []).append((hits, ticks * stats.unit))
+                for loop in loops:
+                    header = by_line.get((loop["function"], loop["line"]), [])
+                    loop["header_hits"] = sum(hits for hits, _ in header) if header else 0
+                    loop["header_seconds"] = sum(seconds for _, seconds in header)
+                    loop["body_line_seconds_approx"] = sum(
+                        seconds for (name, lineno), records in by_line.items()
+                        if name == loop["function"] and loop["line"] <= lineno <= loop["end_line"]
+                        for _, seconds in records)
+                loop_mode = "line_profiler_active"
+            hotspots = sorted(
+                ({"operation": name, "seconds": rec["total_seconds"],
+                  "percent_of_e2e": round(100 * rec["total_seconds"] / max(elapsed, 1e-12), 2),
+                  "calls": rec["count"]}
+                 for name, rec in _PERF_TIMINGS.items()),
+                key=lambda item: item["seconds"], reverse=True)
+            stages = {}
+            for stage_values in _PERF_CONTEXT.get("core5_runtime_by_symbol", {}).values():
+                for name, seconds in stage_values.items():
+                    if name != "total_seconds":
+                        stages[name] = stages.get(name, 0.) + seconds
+            core5_hotspots = sorted(
+                ({"stage": name, "seconds": seconds,
+                  "percent_of_e2e": round(100 * seconds / max(elapsed, 1e-12), 2)}
+                 for name, seconds in stages.items()),
+                key=lambda item: item["seconds"], reverse=True)
+            report = {
+                "schema": "onefile-performance-v1",
+                "run_id": run_id,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "argv": sys.argv[1:] if argv is None else argv,
+                "workload": _PERF_CONTEXT,
+                "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "status": "FAIL" if failure else "SUCCESS",
+                "error": failure,
+                "wall_seconds": elapsed,
+                "cpu_seconds": cpu,
+                "cpu_to_wall_ratio": cpu / max(elapsed, 1e-12),
+                "sampled_hotspots": hotspots,
+                "core5_stage_hotspots": core5_hotspots,
+                "sampling": sampling if line_profiler is None else "off_during_exact_line_tracing",
+                "loop_profile_mode": loop_mode,
+                "timings": _PERF_TIMINGS,
+                "loop_inventory": loops,
+                "artifacts": paths,
+                "limitations": [
+                    "Wall time includes profiler overhead, I/O and cold JIT on this process.",
+                    "Loop inventory is static; without --profile-loops, iteration counts are unknown.",
+                    "Line tracing is expensive and changes wall time; compare runs with matching profiling modes.",
+                    "Loop body line-time is approximate and nested loop totals overlap; do not sum them.",
+                    "Hotspots are inclusive/overlapping timings; do not add their percentages.",
+                    "Only module-level functions are directly instrumented by line_profiler; nested closures may not have hit counts.",
+                    "Numba-compiled inner loops are not visible as Python line hits.",
+                ],
+            }
+            if opts.perf_baseline:
+                try:
+                    old = json.loads(Path(opts.perf_baseline).read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    old = {}
+                    report["comparison"] = {"status": "UNAVAILABLE_BASELINE", "reason": str(exc)}
+                if old and any((old.get("workload") or {}).get(key) != _PERF_CONTEXT.get(key) for key in ("input_sha256", "study_mode", "unlock_oos", "offline", "download", "behavior", "target_r", "trials")):
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA or study options mismatch"}
+                elif old and (old.get("loop_profile_mode") != loop_mode or old.get("sampling") != report["sampling"]):
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Different profiling modes"}
+                elif old and old.get("wall_seconds", 0) <= 0:
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "No valid baseline timing"}
+                elif old:
+                    baseline = old["wall_seconds"]
+                    old_timings = old.get("timings") or {}
+                    stage_changes = {}
+                    for name, rec in _PERF_TIMINGS.items():
+                        older = old_timings.get(name, {})
+                        previous = older.get("total_seconds", 0)
+                        if previous > 0:
+                            stage_changes[name] = {
+                                "baseline_seconds": previous, "current_seconds": rec["total_seconds"],
+                                "time_reduction_percent": 100 * (previous - rec["total_seconds"]) / previous,
+                                "baseline_calls": older.get("count"), "current_calls": rec["count"]}
+                    report["comparison"] = {
+                        "status": "COMPARABLE_PROFILE_MODE_AND_INPUT",
+                        "baseline_wall_seconds": baseline,
+                        "wall_reduction_percent": 100 * (baseline - elapsed) / baseline,
+                        "speedup_x": baseline / elapsed,
+                        "operation_time_reductions": stage_changes}
+            path = base.with_suffix(".json")
+            atomic_write(path, lambda stream: stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n"))
+            print(f"Performance audit: {path} ({elapsed:.3f}s, {loop_mode})", file=sys.stderr)
+        except Exception as exc:
+            print(f"Performance audit could not be saved: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="ONEFILE Brick 1: exploratory BTC 4h event study")
     parser.add_argument("--csv", default="btc_4h.csv", help="Validated CSV with funding_observed and symbol columns; legacy files require --download")
+    parser.add_argument("--perf-dir", default="perf", help="Directory for automatic E2E performance reports")
+    parser.add_argument("--no-perf", action="store_true", help="Disable automatic performance audit (baseline timing only)")
+    parser.add_argument("--profile-loops", action="store_true", help="Trace Python loop lines with optional line_profiler (slow)")
+    parser.add_argument("--perf-baseline", default=None, help="Previous performance JSON to compare on matching input")
     parser.add_argument("--symbol", default=SYMBOL, choices=[SYMBOL], help="Locked research universe: BTCUSDT only")
     parser.add_argument("--target-r", type=float, default=TARGET_R, help="Target R-multiple (default: 3.0)")
     parser.add_argument("--download", action="store_true", help="Download canonical USD-M 4h candles + funding")
@@ -2354,6 +2653,7 @@ def main(argv: list[str] | None = None) -> None:
             raise ValueError(f"No data at {file}. Run: python one.py --download")
         file_bytes = file.read_bytes()
         file_hash = hashlib.sha256(file_bytes).hexdigest()
+        _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos, "offline": args.offline, "download": args.download, "behavior": args.behavior, "target_r": args.target_r, "trials": args.trials})
         raw = pd.read_csv(io.BytesIO(file_bytes), float_precision="round_trip")
         if args.multi_research:
             assets, readiness = validate_core5(raw, file, file_hash=file_hash)
@@ -2483,4 +2783,4 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    _run_with_performance_audit()
