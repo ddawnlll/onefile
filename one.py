@@ -3709,10 +3709,13 @@ def _direction_fit(kind: str, cols: list[str], fit: pd.DataFrame, stop: pd.DataF
                       max_bin=64, random_state=SEED, n_jobs=1, eval_metric="mlogloss")
         xf = fit.dropna(subset=cols+[y_name])
         sf = stop.dropna(subset=cols+[y_name])
-        probe = XGBClassifier(**params, n_estimators=200, early_stopping_rounds=20)
-        probe.fit(xf[cols].to_numpy(np.float32), xf[y_name].to_numpy(int)+1,
-                  eval_set=[(sf[cols].to_numpy(np.float32), sf[y_name].to_numpy(int)+1)], verbose=False)
-        rounds = probe.best_iteration+1
+        if len(np.unique(xf[y_name])) == 3 and len(np.unique(sf[y_name])) == 3:
+            probe = XGBClassifier(**params, n_estimators=200, early_stopping_rounds=20)
+            probe.fit(xf[cols].to_numpy(np.float32), xf[y_name].to_numpy(int)+1,
+                      eval_set=[(sf[cols].to_numpy(np.float32), sf[y_name].to_numpy(int)+1)], verbose=False)
+            rounds = probe.best_iteration+1
+        else:
+            rounds, info["stopping_fallback"] = 64, "class missing in fit or stopping segment; fixed 64 rounds"
         model = XGBClassifier(**params, n_estimators=rounds).fit(train[cols].to_numpy(np.float32), yi)
         info["rounds"] = rounds
         pc = model.predict_proba(cal[cols].fillna(0).to_numpy(np.float32))
