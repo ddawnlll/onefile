@@ -65,6 +65,12 @@ DATA_COLUMNS = ["time", "open", "high", "low", "close", "volume", "funding_rate"
 CORE5_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT")
 CORE5_FIRST_MONTH = {"BTCUSDT": "2020-01", "ETHUSDT": "2020-01", "SOLUSDT": "2020-09",
                      "XRPUSDT": "2020-01", "BNBUSDT": "2020-02"}
+# Regime v4 cross-sectional holdout: fixed before any of these assets was examined.
+# DEV window only (<2025); never used for features, labels, tuning or policy choice.
+HOLDOUT_FIRST_MONTH = {"ADAUSDT": "2020-01", "LINKUSDT": "2020-01", "LTCUSDT": "2020-01", "DOGEUSDT": "2020-07",
+                       "DOTUSDT": "2020-08", "TRXUSDT": "2020-01", "BCHUSDT": "2020-01", "ETCUSDT": "2020-01",
+                       "ATOMUSDT": "2020-02", "AVAXUSDT": "2020-09", "XLMUSDT": "2020-01", "FILUSDT": "2020-10"}
+HOLDOUT_SYMBOLS = tuple(HOLDOUT_FIRST_MONTH)
 
 # Stage 01 / Brick 1 Kill Criteria thresholds
 MIN_EVENTS = 30
@@ -1826,15 +1832,16 @@ def _fetch_core5_month(symbol: str, ym: str) -> tuple[str, pd.DataFrame, pd.Data
     return symbol, candles, funding
 
 
-def download_core5_dev(file: Path) -> dict:
+def download_core5_dev(file: Path, first_month: dict[str, str] = CORE5_FIRST_MONTH) -> dict:
     """Download canonical Binance monthly archives only through 2024-12 (never holdouts)."""
-    jobs = [(symbol, ym) for symbol in CORE5_SYMBOLS for ym in
-            pd.date_range(CORE5_FIRST_MONTH[symbol], DEV_END, freq="MS", inclusive="left").strftime("%Y-%m")]
+    symbols = tuple(first_month)
+    jobs = [(symbol, ym) for symbol in symbols for ym in
+            pd.date_range(first_month[symbol], DEV_END, freq="MS", inclusive="left").strftime("%Y-%m")]
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
         chunks = list(pool.map(lambda job: _fetch_core5_month(*job), jobs))
     frames = []
     per_asset = {}
-    for symbol in CORE5_SYMBOLS:
+    for symbol in symbols:
         candles = pd.concat([c for s, c, _ in chunks if s == symbol], ignore_index=True).sort_values("time_ms")
         funding = pd.concat([f for s, _, f in chunks if s == symbol], ignore_index=True).sort_values("time_ms")
         if candles.time_ms.duplicated().any() or funding.time_ms.duplicated().any():
@@ -1880,19 +1887,20 @@ def download_core5_dev(file: Path) -> dict:
             "file_sha256": hashlib.sha256(file.read_bytes()).hexdigest(), "status": "PASS"}
 
 
-def validate_core5(raw: pd.DataFrame, file: Path, file_hash: str | None = None) -> tuple[dict[str, pd.DataFrame], dict]:
+def validate_core5(raw: pd.DataFrame, file: Path, file_hash: str | None = None,
+                   symbols: tuple[str, ...] = CORE5_SYMBOLS) -> tuple[dict[str, pd.DataFrame], dict]:
     missing = set(DATA_COLUMNS) - set(raw.columns)
     if missing:
         raise ValueError(f"Core-5 data missing fields: {sorted(missing)}")
     x = raw[DATA_COLUMNS].copy()
     x["time"] = pd.to_datetime(x.time, utc=True, errors="raise")
     x["symbol"] = x.symbol.astype(str)
-    if not x.symbol.isin(CORE5_SYMBOLS).all():
+    if not x.symbol.isin(symbols).all():
         raise ValueError("Core-5 file contains a symbol outside the frozen core-5 universe")
     if (x.time < pd.Timestamp(DEV_START, tz="UTC")).any() or (x.time >= pd.Timestamp(DEV_END, tz="UTC")).any():
         raise ValueError("Core-5 data exceeds the unlocked historical DEV window")
     assets, report = {}, {}
-    for symbol in CORE5_SYMBOLS:
+    for symbol in symbols:
         a = x.loc[x.symbol.eq(symbol)].sort_values("time").reset_index(drop=True).copy()
         if len(a) < 365*6 or a.time.duplicated().any():
             raise ValueError(f"Insufficient/duplicate history for {symbol}")
@@ -3262,11 +3270,232 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
     if args.forecasts:
         atomic_write(Path(args.forecasts), lambda f: forecasts.to_csv(f, index=False))
     atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
+    if getattr(args, "artifacts_dir", None):
+        meta = {"universe": getattr(args, "regime3_universe", "core5"), "scope": args.regime3_scope,
+                "data": getattr(args, "data_provenance", {}), "assets": sorted(assets), "models": list(kinds),
+                "policies": list(REGIME3_POLICIES), "primary": list(REGIME3_PRIMARY),
+                "config": {"logistic": REGIME3_LOGIT, "xgb": REGIME3_XGB, "fixed": REGIME3_FIXED, "budget": REGIME3_BUDGET,
+                           "min_history_alarms": REGIME3_MIN_HISTORY_ALARMS, "horizon": REGIME_HORIZON, "confirm": REGIME_CONFIRM,
+                           "mc": {"paths": 400, "df": 4., "seed": SEED}, "tune_end": REGIME3_TUNE_END},
+                "features": REGIME3_BASE, "timings": {"research_seconds": result["runtime_seconds"]}}
+        ts = time.perf_counter()
+        ref = getattr(args, "regime3_reference", None)
+        path = regime_audit(d, events, forecasts, folds, report, meta, Path(args.artifacts_dir), Path(ref) if ref else None)
+        result["artifacts"] = str(path)
+        print(f"Audit artifacts: {path} ({time.perf_counter()-ts:.1f}s)")
     brief = {k: {p: {m: v[p].get(m) for m in ("alarms", "hits", "precision", "precision_wilson95", "recall", "scoreable_events", "event_AP")}
                  for p in REGIME3_POLICIES} for k, v in report.items() if k != "verdict"}
     brief["verdict"] = report.get("verdict")
     print(json.dumps({"scope": args.regime3_scope, "summary": brief, "runtime_seconds": result["runtime_seconds"]}, indent=2, default=str))
     return result
+
+
+# Regime evidence audit: post-hoc, read-only over forecasts/folds/report. It
+# never feeds back into fitting or thresholds; parity re-derives every metric
+# from the written predictions and must match the in-memory report exactly.
+REGIME_AUDIT_SNAPSHOT = ["q", "z20", "er20", "rv20", "funding3", "rw_up", "rw_down", "need_up", "need_down", "mc_up", "mc_down"]
+
+
+def _git_state() -> dict:
+    import subprocess
+    try:
+        run = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True, check=True,
+                                        cwd=Path(__file__).parent).stdout.strip()
+        return {"commit": run("rev-parse", "HEAD"), "dirty": bool(run("status", "--porcelain", "--untracked-files=no"))}
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
+def regime_event_table(d: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    """Every onset with its NATURAL regime duration: consecutive days q keeps the new side."""
+    rows = []
+    for symbol, g in d.groupby("symbol", sort=True):
+        q, times = g.q.to_numpy(), g.time.to_numpy()
+        index = {t: i for i, t in enumerate(pd.DatetimeIndex(g.time).as_unit("ns").asi8)}
+        for e in events.loc[events.symbol.eq(symbol)].itertuples():
+            i = index.get(pd.Timestamp(e.onset_time).as_unit("ns").value)
+            run = 0
+            while i is not None and i+run < len(q) and q[i+run] == e.side:
+                run += 1
+            censored = i is None or i+run >= len(q)
+            rows.append({"symbol": symbol, "event_id": int(e.onset_i), "onset_time": e.onset_time, "side": int(e.side),
+                         "status": e.status, "duration_days": run, "duration_censored": censored,
+                         "end_time": None if censored else times[i+run]})
+    return pd.DataFrame(rows)
+
+
+def _alarm_reason(alarm: dict, ev: pd.DataFrame) -> str:
+    """Why an alarm was false, from realized onsets only (diagnostic, after the fact)."""
+    t, side = pd.Timestamp(alarm["time"]), alarm["side"]
+    e = ev.loc[ev.symbol.eq(alarm["symbol"])]
+    window = e.loc[(e.onset_time > t) & (e.onset_time <= t+pd.Timedelta(days=7))]
+    same = window.loc[window.side.eq(side)]
+    if same.empty:
+        late = e.loc[e.side.eq(side) & (e.onset_time > t+pd.Timedelta(days=7)) & (e.onset_time <= t+pd.Timedelta(days=14))]
+        if not late.empty:
+            return "late_onset_8_14d"
+        return "opposite_onset" if not window.empty else "no_onset"
+    status = same.iloc[0].status
+    if status == "UNCONFIRMED":
+        return "onset_failed_confirmation"
+    if status == "CENSORED":
+        return "censored_onset"
+    return "matched_elsewhere_or_preceded"
+
+
+def regime_audit_tables(d: pd.DataFrame, events: pd.DataFrame, forecasts: pd.DataFrame,
+                        policies: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    from sklearn.metrics import average_precision_score
+    etable = regime_event_table(d, events)
+    snap = d[["symbol", "time"]+[c for c in REGIME_AUDIT_SNAPSHOT if c in d]]
+    alarms, event_rows, fold_rows, calib = [], [], [], []
+    for kind, g in forecasts.groupby("model", sort=False):
+        g = g.loc[g.y.notna()].sort_values(["symbol", "time"]).reset_index(drop=True)
+        if g.empty:
+            continue
+        p = g[["none", "up", "down"]].to_numpy()
+        cand = _regime3_candidates(g, p, events)
+        score = pd.Series(cand["score"], index=pd.MultiIndex.from_arrays([cand["symbol"], cand["time"]]))
+        for policy in policies:
+            archive, opp = regime3_alarms(g, p, g[policy].to_numpy(), events, cand)
+            caught = {a["event_id"]: a for a in archive if a["event_id"] is not None}
+            limit = g.set_index(["symbol", "time"])[policy]
+            for a in archive:
+                alarms.append({"model": kind, "policy": policy, **a, "data_cutoff": a["time"],
+                               "threshold": float(limit.loc[(a["symbol"], pd.Timestamp(a["time"]))]),
+                               "outcome": "TP" if a["event_id"] is not None else "FP",
+                               "fp_reason": None if a["event_id"] is not None else _alarm_reason(a, events)})
+            for e in opp.itertuples():
+                hit = caught.get(int(e.onset_i))
+                window = g.loc[g.symbol.eq(e.symbol) & (g.time >= e.onset_time-pd.Timedelta(days=7)) &
+                               (g.time < e.onset_time) & g.q.ne(e.side)]
+                side_score = window.up.to_numpy() if e.side == 1 else window.down.to_numpy()
+                limits = window[policy].to_numpy()
+                if hit is not None:
+                    reason = None
+                elif window.empty:
+                    reason = "no_eligible_origin"
+                elif not np.isfinite(limits).any():
+                    reason = "policy_disabled"
+                elif not np.any(side_score >= limits):
+                    reason = "score_below_threshold"
+                else:
+                    reason = "cooldown_or_other_side_alarm"
+                event_rows.append({"model": kind, "policy": policy, "symbol": e.symbol, "event_id": int(e.onset_i),
+                                   "onset_time": e.onset_time, "side": int(e.side), "caught": hit is not None,
+                                   "lead_days": None if hit is None else hit["lead_days"], "miss_reason": reason,
+                                   "max_side_score_7d": float(side_score.max()) if len(side_score) else None})
+            for fold, fg in g.groupby("fold"):
+                lo, hi = fg.time.min(), fg.time.max()
+                fa = [a for a in archive if lo <= pd.Timestamp(a["time"]) <= hi]
+                fo = opp.loc[opp.onset_time.between(lo, hi+pd.Timedelta(days=7))]
+                hits = sum(a["event_id"] is not None for a in fa)
+                ev = fg.y.ne(0)
+                fold_rows.append({"model": kind, "policy": policy, "fold": fold, "rows": len(fg), "positives": int(ev.sum()),
+                                  "threshold": float(fg[policy].iloc[0]) if np.isfinite(fg[policy].iloc[0]) else None,
+                                  "alarms": len(fa), "hits": hits, "precision": hits/len(fa) if fa else None,
+                                  "events": len(fo), "event_AP": float(average_precision_score(ev, fg.up+fg.down)) if ev.any() else None})
+        edges = np.linspace(0, 1, 11)
+        prob = p[:, 1:].sum(axis=1)
+        bins = np.clip(np.digitize(prob, edges[1:-1]), 0, 9)
+        for b in range(10):
+            m = bins == b
+            if m.any():
+                calib.append({"model": kind, "bin_low": edges[b], "bin_high": edges[b+1], "n": int(m.sum()),
+                              "mean_predicted": float(prob[m].mean()), "realized_rate": float(g.y.ne(0)[m].mean())})
+    alarm_frame = pd.DataFrame(alarms)
+    if not alarm_frame.empty:
+        alarm_frame["time"] = pd.to_datetime(alarm_frame.time, utc=True)
+        alarm_frame = alarm_frame.merge(snap, on=["symbol", "time"], how="left")
+    events_frame = pd.DataFrame(event_rows)
+    if not events_frame.empty:
+        events_frame = events_frame.merge(etable[["symbol", "event_id", "duration_days", "duration_censored", "end_time"]],
+                                          on=["symbol", "event_id"], how="left")
+    return {"alarms": alarm_frame, "events": events_frame, "fold_metrics": pd.DataFrame(fold_rows),
+            "calibration": pd.DataFrame(calib), "event_table": etable}
+
+
+def _distribution(values) -> dict:
+    v = pd.Series(values, dtype=float).dropna()
+    if v.empty:
+        return {"n": 0}
+    return {"n": int(len(v)), "mean": float(v.mean()), "p10": float(v.quantile(.1)), "median": float(v.median()),
+            "p90": float(v.quantile(.9)), "counts": {str(int(k)): int(c) for k, c in v.value_counts().sort_index().items()}}
+
+
+def regime_audit(d: pd.DataFrame, events: pd.DataFrame, forecasts: pd.DataFrame, folds: list[dict], report: dict,
+                 meta: dict, root: Path, reference: Path | None = None) -> Path:
+    """Write artifacts/regime/<run_id>/ and prove parity with the in-memory report."""
+    config = {k: v for k, v in meta.items() if k not in ("timings",)}
+    digest = hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:8]
+    run_id = f"{pd.Timestamp.now(tz='UTC'):%Y%m%dT%H%M%SZ}-{meta['universe']}-{meta['scope']}-{digest}"
+    out = root/run_id
+    out.mkdir(parents=True, exist_ok=False)
+    policies = tuple(p for p in REGIME3_POLICIES if p in forecasts)
+    tables = regime_audit_tables(d, events, forecasts, policies)
+    files = {}
+    def save(name, frame, **kw):
+        path = out/name
+        frame.to_csv(path, index=False, **kw)
+        files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    save("predictions.csv.gz", forecasts, compression={"method": "gzip", "mtime": 0})
+    feats = sorted({c for c in REGIME3_BASE+REGIME_AUDIT_SNAPSHOT+list(REGIME3_LOGIT["features"])+list(REGIME3_XGB["features"]) if c in d})
+    save("features.csv.gz", d[["symbol", "time", "y", "target_onset", "maturity_time"]+feats], compression={"method": "gzip", "mtime": 0})
+    for name in ("alarms", "events", "fold_metrics", "calibration"):
+        save(f"{name}.csv", tables[name])
+    # Parity: re-read predictions from disk; every policy metric must match the report.
+    back = pd.read_csv(out/"predictions.csv.gz", parse_dates=["time", "maturity_time", "target_onset"])
+    back["time"] = pd.to_datetime(back.time, utc=True)
+    keys = ("alarms", "hits", "precision", "recall", "event_AP", "scoreable_events")
+    mismatches = []
+    for kind, g in back.groupby("model", sort=False):
+        for policy in policies:
+            again = regime3_metrics(g, events, policy)
+            for k in keys:
+                a, b = again.get(k), report[kind][policy].get(k)
+                if not (a == b or (a is not None and b is not None and abs(a-b) < 1e-9)):
+                    mismatches.append([kind, policy, k, a, b])
+    parity = {"predictions_roundtrip": "PASS" if not mismatches else "FAIL", "mismatches": mismatches}
+    if reference is not None and reference.exists():
+        ref = json.loads(reference.read_text())["models"]
+        diff = [[kind, policy, k, report[kind][policy].get(k), ref[kind][policy].get(k)]
+                for kind in report if kind in ref and kind != "verdict" for policy in policies if policy in ref[kind]
+                for k in keys if report[kind][policy].get(k) != ref[kind][policy].get(k)]
+        parity["reference"] = {"path": str(reference), "status": "PASS" if not diff else "DIFF", "differences": diff}
+    al, ev = tables["alarms"], tables["events"]
+    comparison = {}
+    for kind in [k for k in report if k != "verdict"]:
+        for policy in policies:
+            r = report[kind][policy]
+            a = al.loc[al.model.eq(kind) & al.policy.eq(policy)] if not al.empty else al
+            e = ev.loc[ev.model.eq(kind) & ev.policy.eq(policy)] if not ev.empty else ev
+            comparison[f"{kind}/{policy}"] = {
+                **{k: r.get(k) for k in ("alarms", "hits", "precision", "precision_wilson95", "recall", "scoreable_events", "event_AP", "brier")},
+                "coverage": r.get("alarms", 0)/max(r.get("N", 1), 1),
+                "lead_days": _distribution(a.loc[a.outcome.eq("TP"), "lead_days"]) if len(a) else {"n": 0},
+                "hits_lead_ge2": int((a.outcome.eq("TP") & a.lead_days.ge(2)).sum()) if len(a) else 0,
+                "fp_reasons": a.loc[a.outcome.eq("FP"), "fp_reason"].value_counts().to_dict() if len(a) else {},
+                "miss_reasons": e.loc[~e.caught, "miss_reason"].value_counts().to_dict() if len(e) else {},
+                "duration_caught": _distribution(e.loc[e.caught, "duration_days"]) if len(e) else {"n": 0},
+                "duration_missed": _distribution(e.loc[~e.caught, "duration_days"]) if len(e) else {"n": 0}}
+    (out/"comparison.json").write_text(json.dumps(comparison, indent=2, default=str)+"\n")
+    lines = ["| model/policy | alarms | hits | precision | recall | AP | hits lead≥2 | median lead |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for k, c in comparison.items():
+        f = lambda x: "—" if x is None else f"{x:.3f}" if isinstance(x, float) else str(x)
+        lines.append(f"| {k} | {c['alarms']} | {c['hits']} | {f(c['precision'])} | {f(c['recall'])} | {f(c['event_AP'])} | "
+                     f"{c['hits_lead_ge2']} | {f(c['lead_days'].get('median'))} |")
+    (out/"comparison.md").write_text(f"# {run_id}\n\n"+"\n".join(lines)+"\n")
+    for name in ("comparison.json", "comparison.md"):
+        files[name] = hashlib.sha256((out/name).read_bytes()).hexdigest()
+    manifest = {"run_id": run_id, "created_utc": pd.Timestamp.now(tz="UTC").isoformat(), "git": _git_state(),
+                "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), **meta,
+                "splits": [{k: v for k, v in f.items() if k != "models"} | {"models": {m: {"policy": i.get("policy"), "heads": i.get("heads"),
+                           "fit_seconds": i.get("fit_seconds")} for m, i in f["models"].items()}} for f in folds],
+                "verdict": report.get("verdict"), "parity": parity, "files": files, "sealed_data_used": False}
+    (out/"manifest.json").write_text(json.dumps(manifest, indent=2, default=str)+"\n")
+    if parity["predictions_roundtrip"] != "PASS":
+        raise ValueError(f"Audit parity failed: {mismatches[:5]}")
+    return out
 
 
 # Per-invocation performance evidence (kept separate from scientific evidence).
@@ -3532,6 +3761,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--regime-research", action="store_true", help="Four-year DEV-only XGBoost regime forecasts and original H1-A comparison")
     parser.add_argument("--regime3", action="store_true", help="Pooled core-5 DEV regime v3 (shared harness for logistic/XGB)")
     parser.add_argument("--regime3-scope", choices=["tune", "final"], default="tune", help="tune scores 2021-2022 only; final scores 2021-2024")
+    parser.add_argument("--regime3-universe", choices=["core5", "holdout"], default="core5", help="holdout = pre-registered unseen assets (DEV window)")
+    parser.add_argument("--artifacts-dir", default="artifacts/regime", help="Per-run audit artifacts root ('' disables)")
+    parser.add_argument("--regime3-reference", default=None, help="Evidence JSON whose metrics must be reproduced (parity)")
     parser.add_argument("--regime3-models", default="no_event,prior,structural,mc,logistic,xgb")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
@@ -3586,16 +3818,22 @@ def main(argv: list[str] | None = None) -> None:
     if args.regime3:
         if args.unlock_oos or args.research or args.multi_research or args.regime_research:
             parser.error("--regime3 is a separate DEV-only study; sealed OOS cannot be opened")
-        file = Path(args.csv if args.csv != "btc_4h.csv" else "core5_4h.csv")
+        holdout = args.regime3_universe == "holdout"
+        if holdout and args.regime3_scope != "final":
+            parser.error("--regime3-universe holdout is scored once, with --regime3-scope final")
+        file = Path(args.csv if args.csv != "btc_4h.csv" else ("holdout_4h.csv" if holdout else "core5_4h.csv"))
         if not file.exists():
-            download_core5_dev(file)
+            download_core5_dev(file, HOLDOUT_FIRST_MONTH if holdout else CORE5_FIRST_MONTH)
         raw = pd.read_csv(file, float_precision="round_trip")
-        assets, _ = validate_core5(raw, file)
+        assets, validated = validate_core5(raw, file, symbols=HOLDOUT_SYMBOLS if holdout else CORE5_SYMBOLS)
+        args.data_provenance = {"path": str(file), "sha256": validated.get("file_sha256"), "source": DATA_SOURCE,
+                                "rows": len(raw), "window": [DEV_START, DEV_END],
+                                "per_asset": {s: [str(a.time.min()), str(a.time.max()), len(a)] for s, a in assets.items()}}
         supplied = sys.argv[1:] if argv is None else argv
         if not any(a == "--evidence" or a.startswith("--evidence=") for a in supplied):
-            args.evidence = f"regime3_{args.regime3_scope}.json"
+            args.evidence = f"regime3_{args.regime3_scope}{'_holdout' if holdout else ''}.json"
         if not any(a == "--forecasts" or a.startswith("--forecasts=") for a in supplied):
-            args.forecasts = f"regime3_{args.regime3_scope}_forecasts.csv"
+            args.forecasts = f"regime3_{args.regime3_scope}{'_holdout' if holdout else ''}_forecasts.csv"
         regime3_run(assets, args)
         return
 

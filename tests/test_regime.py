@@ -162,5 +162,25 @@ class RegimeV3Tests(unittest.TestCase):
             one.main(["--regime3", "--unlock-oos"])
 
 
+class RegimeAuditTests(unittest.TestCase):
+    def test_natural_duration_and_false_alarm_reasons(self):
+        q = np.zeros(60); q[10:13] = 1; q[30:31] = 1; q[40:52] = -1
+        d = daily(q); d["symbol"] = "BTCUSDT"
+        _, e = one.regime_labels(d)
+        e["symbol"] = "BTCUSDT"
+        table = one.regime_event_table(d, e).set_index("event_id")
+        self.assertEqual(table.loc[10, "duration_days"], 3)
+        self.assertEqual(table.loc[40, "duration_days"], 12)
+        alarm = lambda day, side: {"time": str(d.time.iloc[day]), "symbol": "BTCUSDT", "side": side}
+        self.assertEqual(one._alarm_reason(alarm(27, 1), e), "onset_failed_confirmation")
+        self.assertEqual(one._alarm_reason(alarm(5, -1), e), "opposite_onset")
+        self.assertEqual(one._alarm_reason(alarm(20, 1), e), "late_onset_8_14d")
+        self.assertEqual(one._alarm_reason(alarm(53, 1), e), "no_onset")
+
+    def test_holdout_requires_single_final_scope(self):
+        with self.assertRaises(SystemExit):
+            one.main(["--regime3", "--regime3-universe", "holdout", "--regime3-scope", "tune"])
+
+
 if __name__ == "__main__":
     unittest.main()

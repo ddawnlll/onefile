@@ -12,3 +12,4 @@ regime_selftest.log
 regime_cold_timing.txt
 regime3_tune.json
 .claude/worktrees/
+artifacts/
