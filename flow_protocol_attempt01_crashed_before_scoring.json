@@ -1,0 +1,208 @@
+{
+  "identity": {
+    "specification": {
+      "study": "ONEFILE-DIRECTION-FLOW-DEV-V1",
+      "asset": [
+        "BTCUSDT"
+      ],
+      "input_window": [
+        "2020-01-01",
+        "2025-01-01"
+      ],
+      "evaluation_first_test": "2022-01-01",
+      "test_blocks_days": 90,
+      "stopping_and_calibration": "each preceding 90 days; training is expanding history before stopping",
+      "purge": "label settled at time+7d plus one-day embargo before any later segment",
+      "horizons": [
+        3,
+        5,
+        7
+      ],
+      "primary_horizon": 5,
+      "target": "normalized forward log return z=(p[t+h]-p[t])/(s_t*sqrt(h)); UP if z>0.75, DOWN if z<-0.75, else NEUTRAL",
+      "risk_scale": "EWMA of squared daily log returns, halflife 21 days, floor 1e-6, frozen per decision",
+      "feature_sets": {
+        "prior": "baseline",
+        "persistence": "baseline",
+        "momentum": "baseline",
+        "logit_m3": [
+          "m3"
+        ],
+        "logit_price": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age"
+        ],
+        "xgb_price": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age"
+        ],
+        "logit_price_spot": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age",
+          "spot_imb3",
+          "perp_imb3",
+          "spot_perp_volume"
+        ],
+        "logit_price_deriv": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age",
+          "funding_z21",
+          "funding_change3",
+          "oi_change3"
+        ],
+        "logit_all": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age",
+          "spot_imb3",
+          "perp_imb3",
+          "spot_perp_volume",
+          "funding_z21",
+          "funding_change3",
+          "oi_change3"
+        ],
+        "xgb_all": [
+          "m1",
+          "m3",
+          "m7",
+          "m21",
+          "accel3",
+          "efficiency7",
+          "breakout_position_21",
+          "compression_3_21",
+          "log_risk_21",
+          "relative_volume_3",
+          "close_location_1",
+          "causal_age",
+          "m3_abs",
+          "m3_age",
+          "spot_imb3",
+          "perp_imb3",
+          "spot_perp_volume",
+          "funding_z21",
+          "funding_change3",
+          "oi_change3"
+        ]
+      },
+      "models": {
+        "prior": "smoothed training frequencies",
+        "persistence": "smoothed frequencies by causal state",
+        "momentum": "smoothed frequencies by m3 bin",
+        "logit_m3": "multinomial logistic on m3",
+        "logit": "multinomial logistic, C chosen on stopping from [0.01, 0.1, 1.0], standardized",
+        "xgb": "multi:softprob, depth chosen from [2, 3], min_child_weight 10, eta .05, early stopping on stopping (20 rounds, 256 max)"
+      },
+      "calibration": "one temperature on calibration rows; alarms use the calibration quantile of max(P_up, P_down)",
+      "alarm": {
+        "coverage_targets": [
+          0.05,
+          0.1,
+          0.2,
+          0.4
+        ],
+        "operating": 0.2,
+        "cooldown_days": 5,
+        "episode": "maximal run of consecutive origins with same nonzero primary label"
+      },
+      "costs": {
+        "fee_bps_per_side": 4.0,
+        "slippage_bps_per_side": 2.0,
+        "entry": "open 1 4h bar after decision close; delayed 7 bars",
+        "exit": "close at day t+h",
+        "funding": "realized 4h funding settlements inside the hold"
+      },
+      "bootstrap": "circular daily blocks 21 primary; [14, 35] sensitivity; 2000 draws",
+      "verdict_rules": {
+        "FORECAST_PROMISING": "logit_price log-loss gain vs all four baselines has CI95 lower > 0 and positive in all test years",
+        "FORECAST_WEAK": "all four point gains positive but not PROMISING",
+        "TRADING_PROMISING": "primary entry net mean CI95 lower > 0 at 20% coverage",
+        "TRADING_WEAK": "primary net mean positive but CI includes zero",
+        "POINT/LOWER_BOUND_80": "precision point and CI lower >= .8 are reported as separate flags"
+      },
+      "sealed_data_used": false,
+      "independent_validation": false,
+      "trial_status": "first run of this protocol; prior regime and onset results are not reused as evidence"
+    },
+    "code_sha256": "cd74324fac7309f0c9d8a576ad2c00a926c73927ef242900f8541c07723fcd80",
+    "input_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+    "aux_sha256": "3218fa62d3a367c222fba1bf479b30abe7e5ee25650e0831139faea134527361",
+    "aux_manifest": {
+      "spot_complete_days": 1826,
+      "perp_complete_days": 1827,
+      "oi_valid_days": 1581,
+      "oi_days_requested": 1583,
+      "sources": [
+        "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/spot/monthly",
+        "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/monthly",
+        "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/daily/metrics"
+      ]
+    },
+    "threads": 1,
+    "versions": {
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "sklearn": "1.9.1",
+      "xgboost": "3.4.1"
+    }
+  },
+  "frozen_at_utc": "2026-10-18T19:09:17.324782+00:00"
+}
