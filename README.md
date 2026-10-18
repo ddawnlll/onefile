@@ -51,6 +51,21 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 ---
 
 
+## Pooled core-5 regime forecasting v3 (DEV only)
+
+```bash
+uv run --no-sync python one.py --regime3 --regime3-scope tune   # 2021-2022 only, for model choices
+uv run --no-sync python one.py --regime3 --regime3-scope final  # 2021-2024, run once after pre-registration
+```
+
+Same expanded onset labels as above, pooled over BTC/ETH/SOL/XRP/BNB (143 scoreable
+events in 2021–2024 versus 33 for BTC). Every model shares the data, purged folds,
+history-only thresholds, and per-asset alarm cooldown. The `mc` baseline simulates
+the exact label on the already-observed 20-day window plus Student-t returns. The
+result is **NO_EDGE_80**: the pre-registered `mc`/`fixed70` system reaches 79.2%
+precision (38/48), but only 73.9% on untouched 2023–2024, so the gate fails. See
+[REGIME3_REPORT.md](REGIME3_REPORT.md).
+
 ## Four-year XGBoost regime forecasting (DEV only)
 
 ```bash
