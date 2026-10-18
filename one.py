@@ -40,7 +40,6 @@ from typing import TextIO
 
 import numpy as np
 import pandas as pd
-import vectorbt as vbt
 
 DATA_SOURCE = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/monthly"
 SYMBOL = "BTCUSDT"
@@ -68,6 +67,13 @@ MIN_MEAN_NET_R = 0.15
 MIN_DELTA_CONTROL_R = 0.15
 MIN_P75_MFE_R = 2.50
 MAX_P_VALUE = 0.05
+
+
+@lru_cache(maxsize=1)
+def _vectorbt():
+    """Load the execution library only when execution or engine metadata is needed."""
+    import vectorbt
+    return vectorbt
 
 
 def validate_file_paths(csv: Path, out: Path, evidence: Path, **extra: Path) -> None:
@@ -522,7 +528,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
         raise ValueError("Invalid execution geometry/ATR")
 
     # Pure data adapter: only OPEN is observable on phase 0. Original OHLC is
-    # supplied on phase 1. All order matching and stop priority belong to vbt.
+    # supplied on phase 1. All order matching and stop priority belong to vectorbt.
     opens = np.repeat(open_values, 2)
     highs, lows, closes = opens.copy(), opens.copy(), opens.copy()
     highs[1::2] = high_values
@@ -535,7 +541,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
     if barriers:
         sl[2*entry_bars] = risk / expected_entry
         tp[2*entry_bars] = target_r * risk / expected_entry
-    pf = vbt.Portfolio.from_signals(
+    pf = _vectorbt().Portfolio.from_signals(
         close=pd.Series(closes), entries=entries, exits=exits, price=closes,
         open=opens, high=highs, low=lows, size=1.0, size_type="amount",
         direction="longonly" if side == 1 else "shortonly", accumulate=False, init_cash=np.inf,
@@ -634,7 +640,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
     sl=np.full((nrows,ncols),np.nan); tp=np.full((nrows,ncols),np.nan)
     sl[2,barrier_cols]=risk[barrier_cols]/entry[barrier_cols]
     tp[2,barrier_cols]=targets[barrier_cols]*risk[barrier_cols]/entry[barrier_cols]
-    pf=vbt.Portfolio.from_signals(
+    pf=_vectorbt().Portfolio.from_signals(
         close=pd.DataFrame(closes),entries=entries,exits=exits,price=closes,
         open=opens,high=highs,low=lows,size=1.,size_type="amount",
         direction="longonly" if side==1 else "shortonly",accumulate=False,init_cash=np.inf,
@@ -1125,7 +1131,7 @@ def self_test() -> None:
     stamps = pd.date_range("2020-01-01", periods=len(sr), freq="MS", tz="UTC")
     check(bootstrap_stats(sr, cr, 500, stamps, stamps) == bootstrap_stats(sr, cr, 500, stamps, stamps),
           "deterministic paired calendar-block bootstrap")
-    print(f"SELF-TEST PASSED: {count} checks; actual vectorbt {vbt.__version__}; synthetic fixtures only")
+    print(f"SELF-TEST PASSED: {count} checks; actual vectorbt {_vectorbt().__version__}; synthetic fixtures only")
 
 
 # H1-A is a forecast experiment, not a trading strategy. All research remains
@@ -1266,24 +1272,33 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
                   years: float) -> dict:
     """One alarm / 7 days; strict signed pre-onset matching, deduplicated events."""
     detected, leads, alarms = set(), [], []
+    # Select threshold candidates in arrays before constructing any row objects.
+    # Negated '<' preserves the original NaN comparison behavior as well as ties.
+    sign_indices = np.where(p[:, 1] >= p[:, 2], 1, 2)
+    candidates = np.flatnonzero(~(p[np.arange(len(rows)), sign_indices] < np.asarray(threshold)))
+    confirmed = events.status.eq("CONFIRMED").to_numpy()
+    event_sides = events.side.to_numpy()
+    event_times = events.onset_time.array
+    event_ids = events.onset_i.to_numpy()
+    times = rows.time.array
+    week = pd.Timedelta(days=7)
     last = None
-    for j, row in enumerate(rows.itertuples()):
-        limit = float(threshold[j]) if np.ndim(threshold) else float(threshold)
-        sign_i = 1 if p[j, 1] >= p[j, 2] else 2
-        if p[j, sign_i] < limit or (last is not None and row.time < last + pd.Timedelta(days=7)):
+    for j in candidates:
+        stamp = times[j]
+        if last is not None and stamp < last + week:
             continue
-        last = row.time
-        sign = int(H1A_CLASSES[sign_i])
-        matching = events.loc[(events.status == "CONFIRMED") & (events.side == sign) &
-                              (events.onset_time > row.time) &
-                              (events.onset_time <= row.time + pd.Timedelta(days=7))]
-        key = None if matching.empty else int(matching.iloc[0].onset_i)
+        last = stamp
+        sign = int(H1A_CLASSES[sign_indices[j]])
+        matching = np.flatnonzero(confirmed & (event_sides == sign) &
+                                  np.asarray(event_times > stamp) & np.asarray(event_times <= stamp + week))
+        first = matching[0] if len(matching) else None
+        key = None if first is None else int(event_ids[first])
         lead_days = None
         if key is not None and key not in detected:
             detected.add(key)
-            lead_days = int((matching.iloc[0].onset_time-row.time).days)
+            lead_days = int((event_times[first]-stamp).days)
             leads.append(lead_days)
-        alarms.append({"time": str(row.time), "side": sign, "matched_onset_i": key, "lead_days": lead_days})
+        alarms.append({"time": str(stamp), "side": sign, "matched_onset_i": key, "lead_days": lead_days})
     false = sum(a["matched_onset_i"] is None for a in alarms)
     return {"alarms": len(alarms), "detected_events": len(detected), "false_alarms": false,
             "false_per_asset_year": false/max(years, 1e-12),
@@ -1679,7 +1694,7 @@ def research_run(x: pd.DataFrame, readiness: dict, args) -> None:
                 "onset_status_counts": events.status.value_counts().to_dict(),
                 "daily_q_counts": d.q.value_counts().to_dict(),
                 "volatility_persistence_spearman": d.rv20.corr(np.sqrt(d.r1.pow(2).shift(-1).rolling(7).mean().shift(-6)), method="spearman"),
-                "runtime_seconds": time.monotonic()-started, "engine": f"vectorbt {vbt.__version__}",
+                "runtime_seconds": time.monotonic()-started, "engine": f"vectorbt {_vectorbt().__version__}",
                 "versions": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__, "sklearn": sklearn.__version__},
                 "outputs": {str(p): hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in [args.protocol]},
                 "limits": {"causal_claim": False, "edge_proven": False, "sealed_data_used": False},
@@ -2261,7 +2276,7 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
               "H1A":h1a_summary,"H1B":h1b_summary,"H1C":h1c_summary,"funding_increment":funding_summary,
               "five_research_questions":obs_summary,"runtime_by_symbol":runtime_by_symbol,
               "runtime_seconds":time.monotonic()-started,"versions":{"python":platform.python_version(),"numpy":np.__version__,
-              "pandas":pd.__version__,"sklearn":sklearn.__version__,"vectorbt":vbt.__version__},
+              "pandas":pd.__version__,"sklearn":sklearn.__version__,"vectorbt":_vectorbt().__version__},
               "limits":{"sealed_data_read":False,"independent_oos":False,"causal_participant_identification":False,
               "economic_edge_proven":False,"all_findings_exploratory":True},
               "caveats":["Core-5 sampled assets are correlated; same-date block resampling is not five independent replications.",
@@ -2403,7 +2418,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"  Data File:          {file.name} ({len(df):,} QC-passed bars, {file.stat().st_size:,} bytes)")
     print(f"  Input SHA-256:      {readiness['file_sha256']}")
     print(f"  Code SHA-256:       {readiness['code_sha256']}")
-    print(f"  Engine / Libs:      vectorbt {vbt.__version__}, python {platform.python_version()}")
+    print(f"  Engine / Libs:      vectorbt {_vectorbt().__version__}, python {platform.python_version()}")
     print("-" * 78)
     print("3. B1 DATA ACCEPTANCE GATE (B1.2, B1.3, B1.4, B1.8):")
     print(f"  [{readiness['candle_integrity']}] Candle Continuity:  {readiness['actual_candles']:,} / {readiness['expected_candles']:,} bars ({readiness['missing_candles']} missing)")
@@ -2453,7 +2468,7 @@ def main(argv: list[str] | None = None) -> None:
         },
         "b1_data_readiness": readiness,
         "engine": "vectorbt.Portfolio.from_signals",
-        "vectorbt": vbt.__version__,
+        "vectorbt": _vectorbt().__version__,
         "python": platform.python_version(),
         "numpy": np.__version__,
         "pandas": pd.__version__,

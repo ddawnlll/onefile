@@ -50,15 +50,22 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 
 ---
 
+Development checks, measured timings and deployment notes: [PERFORMANCE.md](PERFORMANCE.md).
+
 ## Quickstart
 
 ```bash
-# 1. Install locked dependencies (Python 3.12 is the CI-tested runtime)
+# 1. Install locked dependencies, including precompiled vectorbt Rust kernels
+# Python 3.11–3.14 supported; 3.12 is the CI-tested runtime
 uv sync --frozen --python 3.12
 
-# 2. Run deterministic execution tests and offline audit regressions
-uv run python one.py --self-test
-uv run python -m unittest discover -s tests -v
+# 2. Full offline suite, including all 38 execution self-checks in ONE process
+uv run --no-sync python -m unittest discover -s tests -v --durations 10
+
+# During development: select the changed behavior once (examples)
+uv run --no-sync python -m unittest discover -s tests -k FileSafetyTests
+# Execution-only check; no need to also run it after the full suite
+uv run --no-sync python one.py --self-test
 
 # 3. Download canonical Binance USD-M 4h candles + funding rates and run DEV study
 uv run python one.py --download

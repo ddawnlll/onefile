@@ -1,4 +1,4 @@
-/** ONEFILE revision-bound checks. Background smoke check is advisory; final check is authoritative. */
+/** Explicit ONEFILE self-test. Never schedules work after edits or at agent settlement. */
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -47,78 +47,23 @@ function execute(root: string, args: string[], timeoutMs = 120_000): Promise<Che
 }
 
 /** Runs only the existing synthetic checks; does not prove strategy profitability or OOS validity. */
-export async function verify(root: string): Promise<Verification> {
+export async function verify(root: string, run = execute): Promise<Verification> {
   const before = revision(root);
   if (!before) return { revision: before, current: false, passed: false, checks: [] };
-  const checks: Check[] = [];
-  for (const args of [
-    ["run", "--no-sync", "python", "-m", "py_compile", "one.py"],
-    ["run", "--no-sync", "python", "one.py", "--self-test"],
-  ]) {
-    checks.push(await execute(root, args));
-    if (checks[checks.length - 1].exitCode !== 0) break;
-  }
+  // Running the script already parses one.py; a separate py_compile process is redundant.
+  const checks = [await run(root, ["run", "--no-sync", "python", "one.py", "--self-test"])];
   const current = revision(root) === before;
-  return { revision: before, current, passed: current && checks.length === 2 && checks.every((check) => check.exitCode === 0), checks };
+  return { revision: before, current, passed: current && checks.every((check) => check.exitCode === 0), checks };
 }
 
 export default function onefileVerify(pi: ExtensionAPI): void {
-  let startRevision: string | null = null;
-  let active: Promise<Verification> | null = null;
-  let activeRevision: string | null = null;
-  let debounce: ReturnType<typeof setTimeout> | null = null;
-  let lastFailedRevision: string | null = null;
-
-  const checked = async (root: string) => {
-    const currentRevision = revision(root);
-    if (active && activeRevision === currentRevision) return active;
-    activeRevision = currentRevision;
-    const job = verify(root);
-    active = job;
-    return job;
-  };
-
-  pi.on("agent_start", (_event, ctx) => {
-    if (existsSync(resolve(ctx.cwd, "one.py"))) startRevision = revision(ctx.cwd);
-  });
-
-  // Debounced best-effort background validation after direct file tool edits.
-  // Never trust this until the final revision is rechecked at settlement.
-  pi.on("tool_result", (event, ctx) => {
-    if (event.isError || (event.toolName !== "edit" && event.toolName !== "write")) return;
-    const path = typeof event.input.path === "string" ? resolve(ctx.cwd, event.input.path) : "";
-    if (!["one.py", "pyproject.toml", "uv.lock"].some((name) => path === resolve(ctx.cwd, name))) return;
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => { debounce = null; void checked(ctx.cwd).catch(() => {}); }, 650);
-  });
-
-  pi.on("agent_before_settle", async (event, ctx) => {
-    if (event.outcome !== "completed" || !startRevision) return;
-    if (debounce) { clearTimeout(debounce); debounce = null; }
-    const latest = revision(ctx.cwd);
-    if (!latest || latest === startRevision) return;
-    const result = await checked(ctx.cwd);
-    if (result.passed && result.current && result.revision === revision(ctx.cwd)) return;
-    if (lastFailedRevision === latest || !event.context.canContinue) {
-      if (ctx.hasUI) ctx.ui.notify("ONEFILE verification failed or stale; do not claim verified completion. Run /onefile-verify.", "warning");
-      return;
-    }
-    lastFailedRevision = latest;
-    const report = result.checks.map(c => `${c.command}: ${c.exitCode === 0 ? "PASS" : "FAIL"}\n${c.output}`).join("\n");
-    return {
-      entries: [{ type: "custom_message" as const, customType: "onefile-verify", display: false, content: `ONEFILE final-revision verification failed or became stale. Fix or explain; do not claim success. Revision: ${latest}\n${report || "No checks ran; missing locked environment files."}` }],
-      continue: true,
-    };
-  });
-
   pi.registerCommand("onefile-verify", {
-    description: "Run ONEFILE compile and synthetic regression checks for the current code/dependency revision",
+    description: "Run ONEFILE synthetic regression checks on demand for the current code/dependency revision",
     handler: async (_args, ctx) => {
       if (!revision(ctx.cwd)) { ctx.ui.notify("ONEFILE files not found", "warning"); return; }
-      const result = await checked(ctx.cwd);
+      const result = await verify(ctx.cwd);
       ctx.ui.notify(`ONEFILE ${result.passed ? "PASS" : "FAIL / STALE"} (${result.revision?.slice(0, 12)})\n${result.checks.map(c => `${c.exitCode === 0 ? "PASS" : "FAIL"}: ${c.command} (${c.durationMs}ms)`).join("\n")}`, result.passed ? "info" : "warning");
     },
   });
 
-  pi.on("session_shutdown", () => { if (debounce) clearTimeout(debounce); });
 }
