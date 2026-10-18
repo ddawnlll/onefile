@@ -23,6 +23,10 @@ Results are exploratory event studies, not independent samples, account returns 
 from __future__ import annotations
 
 import argparse
+import ast
+import inspect
+import sys
+import time
 import concurrent.futures
 import hashlib
 import io
@@ -2166,6 +2170,7 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
         stages["total_seconds"]=time.monotonic()-asset_started
         runtime_by_symbol[symbol]=stages
         print(f"Finished {symbol}: {stages['total_seconds']:.2f}s",flush=True)
+    _PERF_CONTEXT["core5_runtime_by_symbol"] = runtime_by_symbol
     forecasts = pd.concat([f for f in h1a_forecasts if not f.empty], ignore_index=True) if any(not f.empty for f in h1a_forecasts) else pd.DataFrame()
     events_all = pd.concat(h1a_events, ignore_index=True) if h1a_events else pd.DataFrame()
     h1b_frame = pd.DataFrame(h1b_rows)
@@ -2288,9 +2293,221 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
     print(f"Saved core-5 outputs and evidence to {args.evidence}; protocol {protocol_path}")
 
 
+
+# Per-invocation performance evidence (kept separate from scientific evidence).
+_PERF_TIMINGS: dict[str, dict] = {}
+_PERF_CONTEXT: dict = {}
+
+
+def _perf_time(label: str, seconds: float) -> None:
+    rec = _PERF_TIMINGS.setdefault(label, {"count": 0, "total_seconds": 0.0,
+                                            "min_seconds": None, "max_seconds": 0.0})
+    rec["count"] += 1
+    rec["total_seconds"] += seconds
+    rec["min_seconds"] = seconds if rec["min_seconds"] is None else min(rec["min_seconds"], seconds)
+    rec["max_seconds"] = max(rec["max_seconds"], seconds)
+
+
+def _loop_catalog() -> list[dict]:
+    """Inventory source loops, including comprehensions; absence of hits is not zero iterations."""
+    class Inventory(ast.NodeVisitor):
+        def __init__(self):
+            self.function = []
+            self.loops = []
+
+        def visit_FunctionDef(self, node):
+            self.function.append(node.name)
+            self.generic_visit(node)
+            self.function.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_For(self, node):
+            self._add(node, "for")
+            self.generic_visit(node)
+
+        def visit_While(self, node):
+            self._add(node, "while")
+            self.generic_visit(node)
+
+        def visit_AsyncFor(self, node):
+            self._add(node, "async-for")
+            self.generic_visit(node)
+
+        def visit_ListComp(self, node):
+            self._add(node, "list-comprehension")
+            self.generic_visit(node)
+
+        def visit_SetComp(self, node):
+            self._add(node, "set-comprehension")
+            self.generic_visit(node)
+
+        def visit_DictComp(self, node):
+            self._add(node, "dict-comprehension")
+            self.generic_visit(node)
+
+        def visit_GeneratorExp(self, node):
+            self._add(node, "generator")
+            self.generic_visit(node)
+
+        def _add(self, node, kind):
+            self.loops.append({"line": node.lineno, "end_line": node.end_lineno,
+                               "function": self.function[-1] if self.function else "<module>",
+                               "kind": kind})
+    visitor = Inventory()
+    visitor.visit(ast.parse(Path(__file__).read_text(encoding="utf-8")))
+    return visitor.loops
+
+
+def _run_with_performance_audit(argv: list[str] | None = None) -> None:
+    """Always persist a run summary, even for failed CLI invocations.
+
+    Pyinstrument samples live stacks when installed. The opt-in line_profiler
+    traces every Python line for exact hit counts; this is intentionally not
+    on by default because line tracing distorts fast runtime measurements.
+    """
+    options = argparse.ArgumentParser(add_help=False)
+    options.add_argument("--perf-dir", default="perf")
+    options.add_argument("--no-perf", action="store_true")
+    options.add_argument("--profile-loops", action="store_true")
+    options.add_argument("--perf-baseline", default=None)
+    opts, _ = options.parse_known_args(sys.argv[1:] if argv is None else argv)
+    if opts.no_perf:
+        main(argv)
+        return
+
+    from datetime import datetime, timezone
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    run_id = f"{stamp}-{os.getpid()}-{time.time_ns() % 1_000_000_000:09d}"
+    base = Path(opts.perf_dir) / run_id
+    pyinstrument_profiler = None
+    line_profiler = None
+    sampling = "unavailable: install pyinstrument"
+    loop_mode = "inventory_only"
+    if opts.profile_loops:
+        from line_profiler import LineProfiler
+        line_profiler = LineProfiler()
+        for value in list(globals().values()):
+            if inspect.isfunction(value) and value.__module__ == __name__:
+                line_profiler.add_function(value)
+        loop_mode = "line_profiler"
+    else:
+        try:
+            from pyinstrument import Profiler
+        except ImportError:
+            pass
+        else:
+            pyinstrument_profiler = Profiler(interval=0.002, async_mode="disabled")
+            sampling = "pyinstrument_2ms"
+    clock_start = time.perf_counter()
+    cpu_start = time.process_time()
+    failure = None
+    started = False
+    try:
+        if line_profiler is not None:
+            line_profiler.enable_by_count()
+            started = True
+        if pyinstrument_profiler is not None:
+            pyinstrument_profiler.start()
+            started = True
+        main(argv)
+    except BaseException as exc:
+        failure = {"type": type(exc).__name__, "message": str(exc)}
+        raise
+    finally:
+        elapsed = time.perf_counter() - clock_start
+        cpu = time.process_time() - cpu_start
+        if line_profiler is not None and started:
+            line_profiler.disable_by_count()
+        if pyinstrument_profiler is not None and started:
+            pyinstrument_profiler.stop()
+        try:
+            base.parent.mkdir(parents=True, exist_ok=True)
+            loops = _loop_catalog()
+            paths = {}
+            if pyinstrument_profiler is not None:
+                try:
+                    html_path = base.with_suffix(".html")
+                    pyinstrument_profiler.write_html(html_path)
+                    paths["flamegraph_html"] = str(html_path)
+                    sample_text = base.with_suffix(".txt")
+                    sample_text.write_text(pyinstrument_profiler.output_text(color=False, show_all=True), encoding="utf-8")
+                    paths["call_tree_text"] = str(sample_text)
+                except Exception as exc:
+                    sampling = f"sample_output_error: {exc}"
+            if line_profiler is not None:
+                raw_path = base.with_suffix(".lprof")
+                line_profiler.dump_stats(str(raw_path))
+                paths["line_profile_lprof"] = str(raw_path)
+                stats = line_profiler.get_stats()
+                by_line = {}
+                for key, values in stats.timings.items():
+                    filename, first_line, fn = key
+                    if Path(filename).resolve() != Path(__file__).resolve():
+                        continue
+                    for lineno, hits, ticks in values:
+                        by_line.setdefault((fn, lineno), []).append((hits, ticks * stats.unit))
+                for loop in loops:
+                    header = by_line.get((loop["function"], loop["line"]), [])
+                    loop["header_hits"] = sum(hits for hits, _ in header) if header else 0
+                    loop["header_seconds"] = sum(seconds for _, seconds in header)
+                    loop["body_line_seconds_approx"] = sum(
+                        seconds for (name, lineno), records in by_line.items()
+                        if name == loop["function"] and loop["line"] <= lineno <= loop["end_line"]
+                        for _, seconds in records)
+                loop_mode = "line_profiler_active"
+            report = {
+                "schema": "onefile-performance-v1",
+                "run_id": run_id,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "argv": sys.argv[1:] if argv is None else argv,
+                "workload": _PERF_CONTEXT,
+                "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "status": "FAIL" if failure else "SUCCESS",
+                "error": failure,
+                "wall_seconds": elapsed,
+                "cpu_seconds": cpu,
+                "sampling": sampling if line_profiler is None else "off_during_exact_line_tracing",
+                "loop_profile_mode": loop_mode,
+                "timings": _PERF_TIMINGS,
+                "loop_inventory": loops,
+                "artifacts": paths,
+                "limitations": [
+                    "Wall time includes profiler overhead, I/O and cold JIT on this process.",
+                    "Loop inventory is static; without --profile-loops, iteration counts are unknown.",
+                    "Line tracing is expensive and changes wall time; compare runs with matching profiling modes.",
+                    "Loop body line-time is approximate and nested loop totals overlap; do not sum them.",
+                    "Numba-compiled inner loops are not visible as Python line hits.",
+                ],
+            }
+            if opts.perf_baseline:
+                old = json.loads(Path(opts.perf_baseline).read_text(encoding="utf-8"))
+                if (old.get("workload") or {}).get("input_sha256") != _PERF_CONTEXT.get("input_sha256"):
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA mismatch"}
+                elif old.get("loop_profile_mode") != loop_mode or old.get("sampling") != report["sampling"]:
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Different profiling modes"}
+                elif old.get("wall_seconds", 0) <= 0:
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "No valid baseline timing"}
+                else:
+                    baseline = old["wall_seconds"]
+                    report["comparison"] = {"status": "COMPARABLE_PROFILE_MODE_AND_INPUT",
+                                            "baseline_wall_seconds": baseline,
+                                            "wall_reduction_percent": 100 * (baseline - elapsed) / baseline,
+                                            "speedup_x": baseline / elapsed}
+            path = base.with_suffix(".json")
+            atomic_write(path, lambda stream: stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n"))
+            print(f"Performance audit: {path} ({elapsed:.3f}s, {loop_mode})", file=sys.stderr)
+        except Exception as exc:
+            print(f"Performance audit could not be saved: {exc}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="ONEFILE Brick 1: exploratory BTC 4h event study")
     parser.add_argument("--csv", default="btc_4h.csv", help="Validated CSV with funding_observed and symbol columns; legacy files require --download")
+    parser.add_argument("--perf-dir", default="perf", help="Directory for automatic E2E performance reports")
+    parser.add_argument("--no-perf", action="store_true", help="Disable automatic performance audit (baseline timing only)")
+    parser.add_argument("--profile-loops", action="store_true", help="Trace Python loop lines with optional line_profiler (slow)")
+    parser.add_argument("--perf-baseline", default=None, help="Previous performance JSON to compare on matching input")
     parser.add_argument("--symbol", default=SYMBOL, choices=[SYMBOL], help="Locked research universe: BTCUSDT only")
     parser.add_argument("--target-r", type=float, default=TARGET_R, help="Target R-multiple (default: 3.0)")
     parser.add_argument("--download", action="store_true", help="Download canonical USD-M 4h candles + funding")
@@ -2358,6 +2575,7 @@ def main(argv: list[str] | None = None) -> None:
             raise ValueError(f"No data at {file}. Run: python one.py --download")
         file_bytes = file.read_bytes()
         file_hash = hashlib.sha256(file_bytes).hexdigest()
+        _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos})
         raw = pd.read_csv(io.BytesIO(file_bytes), float_precision="round_trip")
         if args.multi_research:
             assets, readiness = validate_core5(raw, file, file_hash=file_hash)
@@ -2487,4 +2705,4 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    _run_with_performance_audit()
