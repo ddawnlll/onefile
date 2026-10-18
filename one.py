@@ -495,6 +495,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
     Funding at a bar OPEN is charged only if the position already existed before
     that OPEN. An exiting position pays that timestamp; a new entry does not.
     """
+    _function_started = time.perf_counter()
     if side not in (-1, 1) or isinstance(side, bool):
         raise ValueError("side must be +1 or -1")
     if not isinstance(hold_bars, int) or hold_bars < 1:
@@ -539,6 +540,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
     if barriers:
         sl[2*entry_bars] = risk / expected_entry
         tp[2*entry_bars] = target_r * risk / expected_entry
+    _vectorbt_started = time.perf_counter()
     pf = vbt.Portfolio.from_signals(
         close=pd.Series(closes), entries=entries, exits=exits, price=closes,
         open=opens, high=highs, low=lows, size=1.0, size_type="amount",
@@ -548,6 +550,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
         stop_exit_price="stopmarket", use_stops=barriers,
         allow_partial=False, raise_reject=True,
     )
+    _perf_time("evaluate_events.vectorbt_seconds", time.perf_counter() - _vectorbt_started)
     trades = pf.trades.records_arr
     orders = pf.orders.records_arr
     if len(trades) != len(ids) or len(orders) != 2*len(ids):
@@ -598,6 +601,7 @@ def evaluate_events(x: pd.DataFrame, indices: list[int], target_r: float = TARGE
 
             "target_before_stop": int(reason == "TARGET"),
         })
+    _perf_time("evaluate_events.total_seconds", time.perf_counter() - _function_started)
     return rows
 
 
@@ -606,6 +610,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
                           barriers: bool | tuple[bool,...] = True) -> list[dict]:
 
     """Run independent event paths as vectorbt columns instead of replaying full history per phase."""
+    _function_started = time.perf_counter()
     if side not in (-1,1) or isinstance(side,bool): raise ValueError("side must be +1 or -1")
     if not isinstance(hold_bars,int) or hold_bars<1: raise ValueError("hold_bars must be positive")
     if not indices: return []
@@ -638,6 +643,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
     sl=np.full((nrows,ncols),np.nan); tp=np.full((nrows,ncols),np.nan)
     sl[2,barrier_cols]=risk[barrier_cols]/entry[barrier_cols]
     tp[2,barrier_cols]=targets[barrier_cols]*risk[barrier_cols]/entry[barrier_cols]
+    _vectorbt_started = time.perf_counter()
     pf=vbt.Portfolio.from_signals(
         close=pd.DataFrame(closes),entries=entries,exits=exits,price=closes,
         open=opens,high=highs,low=lows,size=1.,size_type="amount",
@@ -645,6 +651,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
         fees=FEE_BPS/10_000,slippage=SLIPPAGE_BPS/10_000,sl_stop=sl,tp_stop=tp,
         stop_entry_price="fillprice",stop_exit_price="stopmarket",use_stops=True,
         allow_partial=False,raise_reject=True)
+    _perf_time("evaluate_event_matrix.vectorbt_seconds", time.perf_counter() - _vectorbt_started)
     trades=pf.trades.records_arr
     if len(trades)!=ncols or len(pf.orders.records_arr)!=2*ncols:
         raise RuntimeError("vectorbt matrix did not produce one round trip per event")
@@ -681,6 +688,7 @@ def evaluate_event_matrix(x: pd.DataFrame, indices: list[int], target_rs: tuple[
                      "target_before_stop":int(reason=="TARGET"),"funding_usdt_per_btc":funding,
                      "native_pnl_usdt":pnl,"vectorbt_trade_id":int(trade["id"]),
                      "barriers":bool(barrier_cols[col]),"path_MFE_R":mfe,"path_MAE_R":mae,"cost_R":cost_r})
+    _perf_time("evaluate_event_matrix.total_seconds", time.perf_counter() - _function_started)
     return rows
 
 
@@ -700,8 +708,8 @@ def analyze_behavior(x: pd.DataFrame, target_r: float = TARGET_R) -> None:
     """Stage 02: Measure conditional trend, momentum, pullback, volatility, funding & Monograph H1-A behavior."""
     max_idx = len(x) - HOLD_BARS - 1
     valid = x["atr"].notna()
-    # Cache every eligible window once per fixed calendar phase. Each vectorbt
-    # batch is disjoint; different phases overlap and are NOT independent trials.
+    # Cache each eligible event path once. Independent vectorbt columns can be
+    # batched across phases; phase subsets are still NOT independent trials.
     barrier_rows, free_rows = {}, {}
     # Each mature bar belongs to exactly one UTC phase. Events are independent
     # vectorbt columns, so bounded batches avoid 43 separate Portfolio builds.
@@ -2482,8 +2490,8 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
             }
             if opts.perf_baseline:
                 old = json.loads(Path(opts.perf_baseline).read_text(encoding="utf-8"))
-                if (old.get("workload") or {}).get("input_sha256") != _PERF_CONTEXT.get("input_sha256"):
-                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA mismatch"}
+                if (old.get("workload") or {}).get("input_sha256") != _PERF_CONTEXT.get("input_sha256") or (old.get("workload") or {}).get("study_mode") != _PERF_CONTEXT.get("study_mode"):
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA or study mode mismatch"}
                 elif old.get("loop_profile_mode") != loop_mode or old.get("sampling") != report["sampling"]:
                     report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Different profiling modes"}
                 elif old.get("wall_seconds", 0) <= 0:
