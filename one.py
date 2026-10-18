@@ -2898,11 +2898,15 @@ def flow_inputs(end: str = DEV_END) -> tuple[pd.DataFrame, dict]:
     spot_day = _flow_day_sums(pd.concat(spot, ignore_index=True), "spot")
     perp_day = _flow_day_sums(pd.concat(perp, ignore_index=True), "perp")
     oi_day = pd.DataFrame(oi, columns=["day", "oi_btc"]).set_index("day")
+    # A zero open-interest snapshot is invalid metrics data (it makes log ratios infinite), not an observation.
+    oi_zero_days = int((oi_day.oi_btc <= 0).sum())
+    oi_day.loc[oi_day.oi_btc <= 0, "oi_btc"] = np.nan
     flows = spot_day.join(perp_day, how="outer").join(oi_day, how="outer")
     flows.index.name = "day"
     manifest = {"spot_complete_days": int(spot_day.spot_quote.notna().sum()),
                 "perp_complete_days": int(perp_day.perp_quote.notna().sum()),
                 "oi_valid_days": int(oi_day.oi_btc.notna().sum()), "oi_days_requested": len(oi_days),
+                "oi_zero_days_set_missing": oi_zero_days,
                 "sources": [FLOW_SPOT_SOURCE, DATA_SOURCE, FLOW_METRICS_SOURCE]}
     return flows, manifest
 
@@ -2961,6 +2965,8 @@ def flow_panel(x: pd.DataFrame, flows: pd.DataFrame) -> pd.DataFrame:
     two = c - c.shift(2)
     f["early_dir"] = np.sign(two)
     f["early_cohort"] = (np.sign(two) != 0) & (two.abs() / (risk*np.sqrt(2))).between(.25, 1.5) & f.causal_age.le(2)
+    # Infinite ratios are not observations; they become missing so no row can enter a model.
+    f[FLOW_ALL + ["state"]] = f[FLOW_ALL + ["state"]].replace([np.inf, -np.inf], np.nan)
     f["paired"] = f[FLOW_ALL].notna().all(axis=1) & f.state.notna()
     return f
 
