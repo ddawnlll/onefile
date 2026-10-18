@@ -283,3 +283,25 @@ class AdditionalReadinessTests(TemporaryFiles):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerformanceAuditContractTests(unittest.TestCase):
+    def test_success_and_failure_always_write_e2e_report(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(one, "main", return_value=None):
+                one._run_with_performance_audit(["--perf-dir", directory, "--offline"])
+            paths = sorted(Path(directory).glob("*.json"))
+            self.assertEqual(len(paths), 1)
+            report = json.loads(paths[0].read_text())
+            self.assertEqual(report["status"], "SUCCESS")
+            self.assertGreater(report["wall_seconds"], 0)
+            self.assertTrue(report["loop_inventory"])
+            with patch.object(one, "main", side_effect=ValueError("synthetic failure")):
+                with self.assertRaisesRegex(ValueError, "synthetic failure"):
+                    one._run_with_performance_audit(["--perf-dir", directory])
+            paths = sorted(Path(directory).glob("*.json"))
+            self.assertEqual(len(paths), 2)
+            self.assertEqual(json.loads(paths[-1].read_text())["status"], "FAIL")
+
