@@ -2824,9 +2824,9 @@ REGIME3_BUDGET = 12.  # alarms per asset-year for the fixed-budget policy
 REGIME3_MIN_HISTORY_ALARMS = 10
 # Worker-owned model configs. Changing them must not touch the harness above.
 REGIME3_LOGIT = {"features": REGIME3_BASE, "C": 1., "class_weight": "sqrt"}
-REGIME3_XGB = {"features": REGIME3_BASE, "max_depth": 2, "min_child_weight": 10., "learning_rate": .05,
+REGIME3_XGB = {"features": REGIME3_STRUCTURAL + ["q", "z20", "er20"], "max_depth": 2, "min_child_weight": 2., "learning_rate": .05,
                "reg_lambda": 10., "reg_alpha": .1, "gamma": .1, "subsample": .8, "colsample_bytree": .8,
-               "max_bin": 64, "max_rounds": 256, "class_weight": "sqrt"}
+               "max_bin": 64, "rounds": 30, "class_weight": "sqrt", "base_margin": True}
 
 
 def regime3_features(d: pd.DataFrame) -> pd.DataFrame:
@@ -2913,6 +2913,53 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
             total = np.maximum(1., up+down)
             return np.column_stack([1-(up+down)/total, up/total, down/total])
         return structural, info
+    if kind == "xgb":
+        # Two direct side heads (up: q!=+1, down: q!=-1), each a residual on the structural
+        # random-walk logit (base_margin). Sigmoid calibration per head on the later segment.
+        import xgboost as xgb
+        cfg = REGIME3_XGB; cols = cfg["features"]
+        params = {"objective": "binary:logistic", "eval_metric": "logloss", "tree_method": "hist", "device": "cpu",
+                  "nthread": threads, "seed": SEED, "max_depth": cfg["max_depth"], "min_child_weight": cfg["min_child_weight"],
+                  "eta": cfg["learning_rate"], "lambda": cfg["reg_lambda"], "alpha": cfg["reg_alpha"], "gamma": cfg["gamma"],
+                  "subsample": cfg["subsample"], "colsample_bytree": cfg["colsample_bytree"], "max_bin": cfg["max_bin"]}
+        def margin(rows, col):
+            if not cfg["base_margin"]:
+                return np.zeros(len(rows))
+            return logit(np.clip(rows[col].to_numpy(float), 1e-6, 1-1e-6))
+        def dmatrix(rows, target, col, weights=True):
+            w = _regime3_weights(rows, target, cfg["class_weight"]) if weights else None
+            return xgb.DMatrix(rows[cols].to_numpy(np.float32), label=target, weight=w, base_margin=margin(rows, col))
+        heads = []
+        for side, col, name in ((1, "rw_up", "up"), (-1, "rw_down", "down")):
+            pick = lambda r, s=side: r.loc[r.q.ne(s)]
+            target = lambda r, s=side: r.y.eq(s).to_numpy(int)
+            tr, va, fit, ca = pick(train), pick(stopping), pick(refit), pick(calibration)
+            detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(target(fit), minlength=2).tolist()}
+            if len(fit) < 20 or len(np.unique(target(fit))) < 2:
+                prior = (target(fit).sum()+1)/(len(fit)+2)
+                raw = lambda rows, prior=prior: np.full(len(rows), prior)
+                detail["fallback"] = "smoothed training prior"
+            else:
+                rounds = cfg["rounds"]
+                mono = "(" + ",".join("1" if c == col else "0" for c in cols) + ")"
+                booster = xgb.train({**params, "monotone_constraints": mono}, dmatrix(fit, target(fit), col), num_boost_round=rounds)
+                raw = lambda rows, b=booster, c=col: b.predict(xgb.DMatrix(rows[cols].to_numpy(np.float32), base_margin=margin(rows, c)))
+                detail["rounds"] = rounds
+            cy = target(ca)
+            calibrate = None
+            if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
+                calibrate = LogisticRegression(C=1., solver="lbfgs").fit(logit(np.clip(raw(ca), 1e-6, 1-1e-6))[:, None], cy)
+            detail["calibration"] = "sigmoid on later segment" if calibrate is not None else "identity (<5 per class)"
+            info["heads"][name] = detail
+            heads.append(lambda rows, raw=raw, cal=calibrate: raw(rows) if cal is None else
+                         cal.predict_proba(logit(np.clip(raw(rows), 1e-6, 1-1e-6))[:, None])[:, 1])
+        def predict_xgb(rows):
+            if rows.empty:
+                return np.empty((0, 3))
+            up = np.where(rows.q.eq(1), 0., heads[0](rows)); down = np.where(rows.q.eq(-1), 0., heads[1](rows))
+            total = np.maximum(1., up+down)
+            return np.column_stack([1-(up+down)/total, up/total, down/total])
+        return predict_xgb, info
     heads = []
     for head in ("event", "direction"):
         pick = (lambda r: r) if head == "event" else (lambda r: r.loc[r.y.ne(0)])
@@ -2932,22 +2979,6 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
                           sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
             raw = lambda rows, m=model, s=scaler, c=cols: m.predict_proba(s.transform(rows[c].to_numpy()))[:, 1]
             detail["coef"] = dict(zip(cols, np.round(model.coef_[0], 4).tolist()))
-        elif kind == "xgb":
-            from xgboost import XGBClassifier
-            cfg = REGIME3_XGB; cols = cfg["features"]
-            params = dict(tree_method="hist", device="cpu", n_jobs=threads, random_state=SEED, eval_metric="logloss",
-                          **{k: cfg[k] for k in ("max_depth", "min_child_weight", "learning_rate", "reg_lambda",
-                                                 "reg_alpha", "gamma", "subsample", "colsample_bytree", "max_bin")})
-            rounds = 64
-            if len(np.unique(target(tr))) == 2 and len(va) >= 5 and len(np.unique(target(va))) == 2:
-                probe = XGBClassifier(**params, n_estimators=cfg["max_rounds"], early_stopping_rounds=20)
-                probe.fit(tr[cols].to_numpy(np.float32), target(tr), sample_weight=_regime3_weights(tr, target(tr), cfg["class_weight"]),
-                          eval_set=[(va[cols].to_numpy(np.float32), target(va))], verbose=False)
-                rounds = probe.best_iteration+1
-            model = XGBClassifier(**params, n_estimators=rounds)
-            model.fit(fit[cols].to_numpy(np.float32), target(fit), sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
-            raw = lambda rows, m=model, c=cols: m.predict_proba(rows[c].to_numpy(np.float32))[:, 1]
-            detail["rounds"] = rounds
         else:
             raise ValueError(f"Unknown regime3 model {kind}")
         cy = target(ca)
