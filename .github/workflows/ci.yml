@@ -38,3 +38,12 @@ jobs:
 
       - name: Pi extension policy and hook unit tests
         run: node --experimental-strip-types --test .pi/tests/onefile-extensions.test.mjs
+
+      - name: Upload per-run performance audits
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onefile-performance-audit
+          path: perf/
+          if-no-files-found: ignore
+          retention-days: 7
