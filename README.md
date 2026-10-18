@@ -6,6 +6,13 @@ Single-file **Hypothesis → Experiment → Decision** research workflow with fa
 
 ---
 
+## Kod düzeni
+
+- `core.py`: ortak sabitler, atomik yazım, blok istatistikleri, performans zamanlayıcıları.
+- `data.py`: Binance DEV verisi — indirme, önbellek doğrulama, validasyon, funding kaynağı, özellik hazırlığı.
+- `market.py`: piyasa modeli — H1-A, rejim v2–v4, return gate, direction v5, audit.
+- `one.py`: vectorbt yürütme motoru, olay çalışmaları, CLI ve performans denetimi. Eski isimler (`one.regime3_run` gibi) geriye dönük olarak `one` üzerinden erişilebilir kalır.
+
 ## The 8-Stage Research Roadmap
 
 | # | Stage | Output | Status |

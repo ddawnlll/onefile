@@ -13,6 +13,8 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 from test_one import TemporaryFiles, market_frame
 
+import data
+import market
 import one
 
 
@@ -182,7 +184,7 @@ class ForecastTests(unittest.TestCase):
         def predict(train,test,cols,c):
             calls.append((list(cols),c))
             return np.tile([.6,.25,.15],(len(test),1))
-        with patch.object(one,"forecast_prob",side_effect=predict):
+        with patch.object(market, "forecast_prob",side_effect=predict):
             forecasts,result=one.h1a_experiment(d,events,fast=True)
         self.assertTrue(calls)
         self.assertTrue(all(c==1. for _,c in calls))
@@ -207,7 +209,7 @@ class ForecastTests(unittest.TestCase):
             calls.append((rows.copy(), years))
             return alarm_metrics(rows, p, threshold, events, years)
 
-        with patch.object(one, "forecast_prob", side_effect=predict), patch.object(
+        with patch.object(market, "forecast_prob", side_effect=predict), patch.object(
                 one, "alarm_metrics", side_effect=alarms):
             forecasts, result = one.h1a_experiment(d, events)
         expected = d.loc[d.risk & d.time.ge(pd.Timestamp("2023-01-01", tz="UTC"))]
@@ -240,7 +242,7 @@ class ForecastTests(unittest.TestCase):
     def test_all_censored_test_fold_still_archives_forecasts(self):
         d, events = self.synthetic_daily()
         d.loc[d.time.ge(pd.Timestamp("2023-01-01", tz="UTC")), "y"] = np.nan
-        with patch.object(one, "forecast_prob", side_effect=lambda tr, te, cols, c:
+        with patch.object(market, "forecast_prob", side_effect=lambda tr, te, cols, c:
                           np.tile([.6, .25, .15], (len(te), 1))):
             forecasts, result = one.h1a_experiment(d, events)
         self.assertGreater(len(forecasts), 0)
@@ -286,8 +288,8 @@ class ForecastTests(unittest.TestCase):
             prediction = fake(train, test, cols, c_values[0])
             return {c: prediction for c in c_values}
 
-        with (patch.object(one, "forecast_prob", side_effect=fake),
-              patch.object(one, "forecast_prob_grid", side_effect=fake_grid)):
+        with (patch.object(market, "forecast_prob", side_effect=fake),
+              patch.object(market, "forecast_prob_grid", side_effect=fake_grid)):
             forecasts, result = one.h1a_experiment(d, e)
         self.assertGreater(len(calls), 30)
         self.assertEqual(len(result["folds"]), 4)
@@ -450,7 +452,7 @@ class Core5ExtensionTests(unittest.TestCase):
         with zipfile.ZipFile(payload,"w") as archive: archive.writestr("month.csv","a,b\\n1,2\\n")
         response=MagicMock(); response.read.return_value=payload.getvalue(); response.__enter__.return_value=response
         with tempfile.TemporaryDirectory() as directory, patch.dict(one.os.environ,{"ONEFILE_CACHE_DIR":directory}):
-            with patch.object(one.urllib.request,"urlopen",return_value=response) as fetch:
+            with patch.object(data.urllib.request,"urlopen",return_value=response) as fetch:
                 first=one.cached_archive("https://example.test/month.zip")
                 second=one.cached_archive("https://example.test/month.zip")
                 self.assertEqual(first,second); fetch.assert_called_once()
