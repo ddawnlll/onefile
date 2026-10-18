@@ -163,6 +163,26 @@ class ForecastTests(unittest.TestCase):
         at_onset = one.alarm_metrics(rows.iloc[9:], p[:6], .5, events, 1.)
         self.assertEqual(at_onset["detected_events"], 0)
 
+    def test_array_threshold_ties_preserve_event_order_and_deduplicate_onsets(self):
+        origin = pd.Timestamp("2020-01-01", tz="UTC")
+        rows = pd.DataFrame({"time": [origin + pd.Timedelta(days=d) for d in (0, 6, 7, 14, 21, 28, 29, 35)]},
+                            index=np.arange(101, 109))
+        p = np.array([[0., .5, .5], [0., .9, .1], [0., .2, .8], [0., .6, .4],
+                      [0., .5, .5], [0., .9, .1], [0., .3, .7], [0., .1, .9]])
+        thresholds = np.array([.5, .5, .8, .7, .5, 1.01, .7, .9])
+        events = pd.DataFrame({"onset_i": [30, 2, 30, 7],
+                               "onset_time": [origin + pd.Timedelta(days=d) for d in (6, 2, 24, 8)],
+                               "side": [1, 1, 1, -1], "status": "CONFIRMED"})
+        result = one.alarm_metrics(rows, p, thresholds, events, 2.)
+        self.assertEqual([a["matched_onset_i"] for a in result["alarm_archive"]], [30, 7, 30, None])
+        self.assertEqual([a["lead_days"] for a in result["alarm_archive"]], [6, 1, None, None])
+        self.assertEqual(result["alarms"], 4)
+        self.assertEqual(result["detected_events"], 2)
+        self.assertEqual(result["false_alarms"], 1)
+        self.assertEqual(result["false_per_asset_year"], .5)
+        self.assertEqual(result["precision"], .75)
+        self.assertEqual(result["median_lead_days"], 3.5)
+
     @staticmethod
     def synthetic_daily():
         rng = np.random.default_rng(42)
@@ -464,7 +484,7 @@ class Core5ExtensionTests(unittest.TestCase):
                ("entry_price","f8"),("exit_price","f8"),("size","f8"),("pnl","f8"),("id","i8")]
         trades=np.array([(0,1,2,85,100.02,99.98,1.,-.12,0),(1,1,2,85,100.02,99.98,1.,-.12,1)],dtype=dtype)
         portfolio=Mock(); portfolio.trades.records_arr=trades; portfolio.orders.records_arr=np.zeros(4,dtype=[("id","i8")])
-        with patch.object(one.vbt.Portfolio,"from_signals",return_value=portfolio) as simulate:
+        with patch.object(one._vectorbt().Portfolio,"from_signals",return_value=portfolio) as simulate:
             rows=one.evaluate_event_matrix(x,[30],(3.,5.),side=1,hold_bars=42)
         kwargs=simulate.call_args.kwargs
         self.assertEqual(kwargs["close"].shape,(86,2)); self.assertEqual(kwargs["entries"].sum(),2)

@@ -67,9 +67,31 @@ test('verify reports missing environment and does not claim PASS', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('verify extension registers a manual command and final-revision hook', () => {
+test('verification is manual only: no edit, settlement, or other automatic hooks', () => {
   const { hooks, commands, api } = stub(); onefileVerify(api);
-  assert.equal(typeof hooks.get('agent_before_settle'), 'function');
-  assert.equal(typeof hooks.get('tool_result'), 'function');
+  assert.equal(hooks.size, 0);
   assert.equal(typeof commands.get('onefile-verify')?.handler, 'function');
+});
+
+test('manual verification runs the self-test once and rejects failure or stale code', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'onefile-verify-result-'));
+  try {
+    writeFileSync(join(root, 'one.py'), '# before\n');
+    writeFileSync(join(root, 'pyproject.toml'), '# project\n');
+    writeFileSync(join(root, 'uv.lock'), '# lock\n');
+    const calls = [];
+    const run = async (cwd, args) => {
+      calls.push({ cwd, args });
+      return { command: 'uv ' + args.join(' '), exitCode: 0, output: 'passed', durationMs: 1 };
+    };
+    assert.equal((await verify(root, run)).passed, true);
+    assert.deepEqual(calls, [{ cwd: root, args: ['run', '--no-sync', 'python', 'one.py', '--self-test'] }]);
+    assert.equal((await verify(root, async () => ({ exitCode: 1 }))).passed, false);
+    const stale = await verify(root, async () => {
+      writeFileSync(join(root, 'one.py'), '# changed during check\n');
+      return { exitCode: 0 };
+    });
+    assert.equal(stale.current, false);
+    assert.equal(stale.passed, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -2,10 +2,10 @@
 name = "onefile"
 version = "0.1.0"
 description = "ONEFILE Brick 1: exploratory BTC 4h event study"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "numpy>=2.0.0",
     "pandas>=2.2.0",
-    "vectorbt>=1.0.0",
+    "vectorbt[rust]>=1.1.2",
     "scikit-learn>=1.6.0",
 ]
