@@ -2812,6 +2812,352 @@ def regime_research_run(x: pd.DataFrame, readiness: dict, args) -> None:
                       "expanded_xgb": summaries["expanded"]["models"]["xgb"], "timings": result["timings"]}, indent=2))
 
 
+# Regime forecasting v3: pooled core-5 DEV, same expanded labels as v2. The
+# rolling z20/er20 state has a KNOWN base effect: returns that leave the window
+# in the next 1..7 days are already observed, so a random-walk crossing
+# probability is causal. Shared harness: every model sees identical rows,
+# labels, purged folds, history-only thresholds and alarm budget.
+REGIME3_TUNE_END = "2023-01-01"   # model choices may look at 2021-2022 outer folds only
+REGIME3_STRUCTURAL = ["rw_up", "rw_down", "need_up", "need_down", "drop_r7", "er_proj"]
+REGIME3_BASE = REGIME_FEATURES + REGIME3_STRUCTURAL
+REGIME3_BUDGET = 12.  # alarms per asset-year for the fixed-budget policy
+REGIME3_MIN_HISTORY_ALARMS = 10
+# Worker-owned model configs. Changing them must not touch the harness above.
+REGIME3_LOGIT = {"features": REGIME3_BASE, "C": 1., "class_weight": "sqrt"}
+REGIME3_XGB = {"features": REGIME3_BASE, "max_depth": 2, "min_child_weight": 10., "learning_rate": .05,
+               "reg_lambda": 10., "reg_alpha": .1, "gamma": .1, "subsample": .8, "colsample_bytree": .8,
+               "max_bin": 64, "max_rounds": 256, "class_weight": "sqrt"}
+
+
+def regime3_features(d: pd.DataFrame) -> pd.DataFrame:
+    """Random-walk crossing odds from already-observed drop-off returns (prefix causal)."""
+    from scipy.stats import norm
+    d = regime_features(d)
+    sigma = d.rv20.clip(lower=1e-12)
+    up = np.zeros(len(d)); down = np.zeros(len(d))
+    need_up = np.full(len(d), np.inf); need_down = np.full(len(d), np.inf)
+    for k in range(1, REGIME_HORIZON+1):
+        kept = d.r1.rolling(20-k).sum()
+        scale = np.sqrt(d.r1.pow(2).rolling(20-k).sum()+k*sigma**2)
+        nu = ((1.25*scale-kept)/(sigma*np.sqrt(k))).to_numpy()
+        nd = ((1.25*scale+kept)/(sigma*np.sqrt(k))).to_numpy()
+        need_up, need_down = np.fmin(need_up, nu), np.fmin(need_down, nd)
+        up, down = np.fmax(up, norm.sf(nu)), np.fmax(down, norm.sf(nd))
+    invalid = d.rv20.isna().to_numpy()
+    d["rw_up"] = np.where(invalid, np.nan, np.where(d.q.eq(1), 0., up))
+    d["rw_down"] = np.where(invalid, np.nan, np.where(d.q.eq(-1), 0., down))
+    d["need_up"] = np.where(invalid, np.nan, np.clip(need_up, -10, 10))
+    d["need_down"] = np.where(invalid, np.nan, np.clip(need_down, -10, 10))
+    d["drop_r7"] = (d.r20-d.r1.rolling(20-REGIME_HORIZON).sum())/(sigma*np.sqrt(REGIME_HORIZON))
+    kept = d.r1.rolling(20-REGIME_HORIZON).sum()
+    d["er_proj"] = kept.abs()/(d.r1.abs().rolling(20-REGIME_HORIZON).sum()+REGIME_HORIZON*d.r1.abs().rolling(20).mean()+1e-12)
+    return d
+
+
+def regime3_frame(assets: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per-asset daily labels; event ids offset per asset so pooled matching is one-to-one."""
+    frames, events = [], []
+    for k, (symbol, a) in enumerate(sorted(assets.items())):
+        d, e = regime_labels(regime3_features(daily_market(a)))
+        d["symbol"], e["symbol"] = symbol, symbol
+        e["onset_i"] = e.onset_i+100_000*k
+        d["event_key"] = np.where(d.target_onset.notna(), symbol+"|"+d.target_onset.astype(str), "")
+        frames.append(d); events.append(e)
+    return pd.concat(frames, ignore_index=True), pd.concat(events, ignore_index=True)
+
+
+def regime3_splits(d: pd.DataFrame, start: pd.Timestamp) -> tuple[pd.DataFrame, ...]:
+    """Same 12d label window + 1d embargo at every boundary, applied to all assets by time."""
+    stop_start, cal_start = start-pd.DateOffset(months=6), start-pd.DateOffset(months=3)
+    feature_ok = np.isfinite(d[REGIME3_BASE]).all(axis=1) & d.q.notna()
+    eligible = d.y.notna() & feature_ok
+    mature = d.maturity_time+pd.Timedelta(days=1)
+    return (d.loc[eligible & (mature < stop_start)], d.loc[eligible & (d.time >= stop_start) & (mature < cal_start)],
+            d.loc[eligible & (d.time >= cal_start) & (mature < start)],
+            d.loc[feature_ok & (d.time >= start) & (d.time < start+pd.DateOffset(months=6))])
+
+
+def _regime3_weights(rows: pd.DataFrame, y: np.ndarray, scheme: str) -> np.ndarray:
+    counts = np.bincount(y, minlength=2).clip(min=1)
+    w = {"none": np.ones(len(y)), "sqrt": np.minimum(3., np.sqrt(len(y)/(2*counts[y]))),
+         "balanced": len(y)/(2*counts[y])}[scheme]
+    key = rows.event_key.to_numpy()
+    event = key != ""
+    if event.any():
+        w = w.copy()
+        w[event] /= pd.Series(key[event]).map(pd.Series(key[event]).value_counts()).to_numpy(float)
+    return w/w.mean()
+
+
+def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibration: pd.DataFrame,
+                threads: int = 1) -> tuple[Callable[[pd.DataFrame], np.ndarray], dict]:
+    """Return predict(rows)->[none, up, down]. Event/direction heads, sigmoid calibration later.
+
+    Fit = train+stopping (stopping only picks XGB rounds); calibration fits one
+    sigmoid per head on the later segment. Outer test rows never enter here.
+    """
+    from scipy.special import logit
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from threadpoolctl import threadpool_limits
+    refit = pd.concat([train, stopping])
+    info = {"heads": {}}
+    if kind == "no_event":
+        return lambda rows: np.tile([1., 0., 0.], (len(rows), 1)), info
+    if kind == "prior":
+        prior = (np.array([refit.y.eq(k).sum() for k in H1A_CLASSES])+1)/(len(refit)+3)
+        return lambda rows: np.tile(prior, (len(rows), 1)), info
+    if kind == "structural":
+        def structural(rows):
+            up, down = rows.rw_up.to_numpy(), rows.rw_down.to_numpy()
+            total = np.maximum(1., up+down)
+            return np.column_stack([1-(up+down)/total, up/total, down/total])
+        return structural, info
+    heads = []
+    for head in ("event", "direction"):
+        pick = (lambda r: r) if head == "event" else (lambda r: r.loc[r.y.ne(0)])
+        target = (lambda r: r.y.ne(0).to_numpy(int)) if head == "event" else (lambda r: r.y.eq(1).to_numpy(int))
+        tr, va, fit, ca = pick(train), pick(stopping), pick(refit), pick(calibration)
+        detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(target(fit), minlength=2).tolist()}
+        if len(fit) < 20 or len(np.unique(target(fit))) < 2:
+            prior = (target(fit).sum()+1)/(len(fit)+2)
+            raw = lambda rows, prior=prior: np.full(len(rows), prior)
+            detail["fallback"] = "smoothed training prior"
+        elif kind == "logistic":
+            cfg = REGIME3_LOGIT; cols = cfg["features"]
+            scaler = StandardScaler().fit(fit[cols].to_numpy())
+            model = LogisticRegression(C=cfg["C"], max_iter=500, solver="lbfgs")
+            with threadpool_limits(limits=1):
+                model.fit(scaler.transform(fit[cols].to_numpy()), target(fit),
+                          sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
+            raw = lambda rows, m=model, s=scaler, c=cols: m.predict_proba(s.transform(rows[c].to_numpy()))[:, 1]
+            detail["coef"] = dict(zip(cols, np.round(model.coef_[0], 4).tolist()))
+        elif kind == "xgb":
+            from xgboost import XGBClassifier
+            cfg = REGIME3_XGB; cols = cfg["features"]
+            params = dict(tree_method="hist", device="cpu", n_jobs=threads, random_state=SEED, eval_metric="logloss",
+                          **{k: cfg[k] for k in ("max_depth", "min_child_weight", "learning_rate", "reg_lambda",
+                                                 "reg_alpha", "gamma", "subsample", "colsample_bytree", "max_bin")})
+            rounds = 64
+            if len(np.unique(target(tr))) == 2 and len(va) >= 5 and len(np.unique(target(va))) == 2:
+                probe = XGBClassifier(**params, n_estimators=cfg["max_rounds"], early_stopping_rounds=20)
+                probe.fit(tr[cols].to_numpy(np.float32), target(tr), sample_weight=_regime3_weights(tr, target(tr), cfg["class_weight"]),
+                          eval_set=[(va[cols].to_numpy(np.float32), target(va))], verbose=False)
+                rounds = probe.best_iteration+1
+            model = XGBClassifier(**params, n_estimators=rounds)
+            model.fit(fit[cols].to_numpy(np.float32), target(fit), sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
+            raw = lambda rows, m=model, c=cols: m.predict_proba(rows[c].to_numpy(np.float32))[:, 1]
+            detail["rounds"] = rounds
+        else:
+            raise ValueError(f"Unknown regime3 model {kind}")
+        cy = target(ca)
+        calibrate = None
+        if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
+            calibrate = LogisticRegression(C=1., solver="lbfgs").fit(logit(np.clip(raw(ca), 1e-6, 1-1e-6))[:, None], cy)
+        detail["calibration"] = "sigmoid on later segment" if calibrate is not None else "identity (<5 per class)"
+        heads.append(lambda rows, raw=raw, cal=calibrate: raw(rows) if cal is None else
+                     cal.predict_proba(logit(np.clip(raw(rows), 1e-6, 1-1e-6))[:, None])[:, 1])
+        info["heads"][head] = detail
+    def predict(rows):
+        if rows.empty:
+            return np.empty((0, 3))
+        e, u = heads[0](rows), heads[1](rows)
+        return np.column_stack([1-e, e*u, e*(1-u)])
+    return predict, info
+
+
+def _regime3_candidates(rows: pd.DataFrame, p: np.ndarray, events: pd.DataFrame) -> dict:
+    """Per-row inputs of regime_alarm_archive, computed once (threshold-independent)."""
+    out = {"symbol": [], "time": [], "score": [], "side": [], "event": [], "event_side": [], "onset": [], "opp": []}
+    for symbol, idx in rows.groupby("symbol", sort=True).indices.items():
+        sub = rows.iloc[idx]
+        times = pd.DatetimeIndex(sub.time).as_unit("ns").asi8
+        q = sub.q.to_numpy()
+        conf = events.loc[events.status.eq("CONFIRMED") & events.symbol.eq(symbol)].sort_values("onset_time")
+        week = pd.Timedelta(days=7).value
+        onset = pd.DatetimeIndex(conf.onset_time).as_unit("ns").asi8
+        lo, hi = np.searchsorted(times, onset-week), np.searchsorted(times, onset, side="left")
+        keep = np.array([np.any(q[a:b] != s) for a, b, s in zip(lo, hi, conf.side)], bool)
+        opp = conf.loc[keep] if len(conf) else conf
+        o_t, o_s, o_i = pd.DatetimeIndex(opp.onset_time).as_unit("ns").asi8, opp.side.to_numpy(), opp.onset_i.to_numpy()
+        allowed = p[idx, 1:].copy()
+        allowed[q == 1, 0] = -1.
+        allowed[q == -1, 1] = -1.
+        direction = np.argmax(allowed, axis=1)
+        event = np.full(len(idx), -1); event_side = np.zeros(len(idx), int); event_t = np.zeros(len(idx), np.int64)
+        for j in range(len(idx)):  # first opportunity in (t, t+7d] into a different state
+            a = np.searchsorted(o_t, times[j], side="right"); b = np.searchsorted(o_t, times[j]+week, side="right")
+            hit = np.flatnonzero(o_s[a:b] != q[j])
+            if len(hit):
+                k = a+hit[0]; event[j], event_side[j], event_t[j] = o_i[k], o_s[k], o_t[k]
+        out["symbol"].append(np.full(len(idx), symbol, object)); out["time"].append(times)
+        out["score"].append(allowed[np.arange(len(idx)), direction]); out["side"].append(np.where(direction == 0, 1, -1))
+        out["event"].append(event); out["event_side"].append(event_side); out["onset"].append(event_t); out["opp"].append(opp)
+    return {k: (pd.concat(v, ignore_index=True) if k == "opp" else np.concatenate(v)) for k, v in out.items()} if out["time"] else None
+
+
+def regime3_alarms(rows: pd.DataFrame, p: np.ndarray, thresholds, events: pd.DataFrame,
+                   cand: dict | None = None) -> tuple[list[dict], pd.DataFrame]:
+    """v2 strict matching (regime_alarm_archive semantics) per asset, cooldown per asset; pooled."""
+    cand = cand if cand is not None else _regime3_candidates(rows, p, events)
+    if cand is None:
+        return [], events.iloc[:0]
+    limits = np.broadcast_to(np.asarray(thresholds, float), len(cand["time"]))
+    selected = np.flatnonzero(np.isfinite(limits) & (cand["score"] >= limits))
+    week = pd.Timedelta(days=7).value
+    archive, last, used = [], {}, set()
+    for i in selected:
+        symbol, when = cand["symbol"][i], cand["time"][i]
+        if symbol in last and when < last[symbol]+week:
+            continue
+        last[symbol] = when
+        key = int(cand["event"][i])
+        ok = key >= 0 and cand["event_side"][i] == cand["side"][i] and key not in used
+        if ok:
+            used.add(key)
+        archive.append({"time": str(pd.Timestamp(when, tz="UTC")), "symbol": symbol, "side": int(cand["side"][i]),
+                        "score": float(cand["score"][i]), "event_id": key if ok else None,
+                        "lead_days": int((cand["onset"][i]-when)//pd.Timedelta(days=1).value) if ok else None})
+    return archive, cand["opp"]
+
+
+def regime3_policy(rows: pd.DataFrame, p: np.ndarray, events: pd.DataFrame) -> dict:
+    """Thresholds from PAST out-of-sample scores only (prior folds + calibration segment)."""
+    asset_years = max(rows.groupby("symbol").time.agg(lambda t: (t.max()-t.min()).days+1).sum()/365.25, 1e-9)
+    scores = np.max(p[:, 1:], axis=1)
+    grid = np.unique(np.quantile(scores, np.linspace(.5, .999, 120))) if len(scores) else []
+    options = []
+    cand = _regime3_candidates(rows, p, events)
+    for t in grid:
+        alarms, opp = regime3_alarms(rows, p, t, events, cand)
+        n, hit = len(alarms), sum(a["event_id"] is not None for a in alarms)
+        options.append({"threshold": float(t), "alarms": n, "hits": hit, "precision": hit/n if n else 0.,
+                        "recall": hit/max(len(opp), 1), "rate": n/asset_years})
+    high = [o for o in options if o["alarms"] >= REGIME3_MIN_HISTORY_ALARMS and o["precision"] >= .8]
+    budget = [o for o in options if o["rate"] <= REGIME3_BUDGET and o["alarms"] >= 1]
+    return {"precision80": min(high, key=lambda o: o["threshold"])["threshold"] if high else None,
+            "budget": min(budget, key=lambda o: o["threshold"])["threshold"] if budget else None,
+            "history_rows": len(rows)}
+
+
+def regime3_walk_forward(d: pd.DataFrame, events: pd.DataFrame, kinds: tuple[str, ...], scope: str,
+                         threads: int = 1) -> tuple[pd.DataFrame, list[dict]]:
+    """Expanding six-month outer folds; 'tune' stops before 2023 (2023-2024 untouched)."""
+    end = REGIME3_TUNE_END if scope == "tune" else DEV_END
+    predictions, folds = [], []
+    history = {k: [] for k in kinds}
+    for start in pd.date_range("2021-01-01", end, freq="6MS", inclusive="left", tz="UTC"):
+        tr, va, ca, te = regime3_splits(d, start)
+        record = {"start": str(start.date()), "train_N": len(tr), "stopping_N": len(va), "calibration_N": len(ca), "test_N": len(te), "models": {}}
+        for kind in kinds:
+            ts = time.perf_counter()
+            predict, info = regime3_fit(kind, tr, va, ca, threads)
+            info["fit_seconds"] = time.perf_counter()-ts
+            pc, pt = predict(ca), predict(te)
+            # History pool: earlier outer predictions already mature before this fold, + calibration.
+            past = [h.loc[h.maturity_time+pd.Timedelta(days=1) < start] for h in history[kind]]
+            pool = pd.concat(past+[ca.assign(none=pc[:, 0], up=pc[:, 1], down=pc[:, 2])], ignore_index=True)
+            pool = pool.loc[pool.y.notna()].sort_values(["symbol", "time"]).reset_index(drop=True)
+            ts = time.perf_counter()
+            info["policy"] = regime3_policy(pool, pool[["none", "up", "down"]].to_numpy(), events) if kind != "no_event" else {"precision80": None, "budget": None}
+            info["policy_seconds"] = time.perf_counter()-ts
+            part = te[["symbol", "time", "q", "y", "maturity_time", "target_onset", "event_key"]].copy()
+            part[["none", "up", "down"]] = pt
+            part["fold"], part["model"] = str(start.date()), kind
+            for policy in ("precision80", "budget"):
+                part[policy] = np.nan if info["policy"][policy] is None else info["policy"][policy]
+            history[kind].append(part)
+            predictions.append(part)
+            record["models"][kind] = info
+        folds.append(record)
+    return pd.concat(predictions, ignore_index=True), folds
+
+
+def _wilson(hits: int, n: int, z: float = 1.96) -> list:
+    if not n:
+        return [None, None]
+    p = hits/n; c = z*np.sqrt(p*(1-p)/n+z*z/(4*n*n))/(1+z*z/n)
+    centre = (p+z*z/(2*n))/(1+z*z/n)
+    return [float(centre-c), float(centre+c)]
+
+
+def regime3_metrics(rows: pd.DataFrame, events: pd.DataFrame, policy: str) -> dict:
+    from sklearn.metrics import average_precision_score
+    rows = rows.loc[rows.y.notna()].sort_values(["symbol", "time"]).reset_index(drop=True)
+    if rows.empty:
+        return {"N": 0}
+    p = rows[["none", "up", "down"]].to_numpy()
+    archive, opp = regime3_alarms(rows, p, rows[policy].to_numpy(), events)
+    hits = [a for a in archive if a["event_id"] is not None]
+    brier, _ = forecast_losses(rows.y, p)
+    event = rows.y.ne(0)
+    weeks = {pd.Timestamp(a["time"]).floor("7D") for a in hits}
+    return {"N": len(rows), "positives": int(event.sum()), "scoreable_events": len(opp),
+            "alarms": len(archive), "hits": len(hits), "false_alarms": len(archive)-len(hits),
+            "precision": len(hits)/len(archive) if archive else None, "precision_wilson95": _wilson(len(hits), len(archive)),
+            "recall": len(hits)/len(opp) if len(opp) else None, "distinct_hit_weeks": len(weeks),
+            "event_AP": float(average_precision_score(event, p[:, 1:].sum(axis=1))) if event.any() else None,
+            "base_rate": float(event.mean()), "brier": float(brier.mean()),
+            "median_lead_days": float(np.median([a["lead_days"] for a in hits])) if hits else None,
+            "alarm_archive": archive}
+
+
+def regime3_ap_gain(a: pd.DataFrame, b: pd.DataFrame, draws: int = 500) -> dict:
+    """Paired 28-day calendar-block bootstrap of event-AP(a)-AP(b); assets share dates."""
+    from sklearn.metrics import average_precision_score
+    key = ["symbol", "time"]
+    m = a.loc[a.y.notna(), key+["y", "up", "down"]].merge(b.loc[b.y.notna(), key+["up", "down"]], on=key, suffixes=("_a", "_b"))
+    y = m.y.ne(0).to_numpy(); sa = (m.up_a+m.down_a).to_numpy(); sb = (m.up_b+m.down_b).to_numpy()
+    block = ((m.time-m.time.min()).dt.days//28).to_numpy()
+    groups = [np.flatnonzero(block == g) for g in range(block.max()+1)]
+    rng = np.random.default_rng(SEED); stats = []
+    for _ in range(draws):
+        idx = np.concatenate([groups[g] for g in rng.integers(0, len(groups), len(groups))])
+        if y[idx].any():
+            stats.append(average_precision_score(y[idx], sa[idx])-average_precision_score(y[idx], sb[idx]))
+    return {"estimate": float(average_precision_score(y, sa)-average_precision_score(y, sb)),
+            "ci95": np.quantile(stats, [.025, .975]).tolist()}
+
+
+def regime3_report(forecasts: pd.DataFrame, events: pd.DataFrame) -> dict:
+    out = {}
+    for kind, g in forecasts.groupby("model", sort=False):
+        out[kind] = {policy: {k: v for k, v in regime3_metrics(g, events, policy).items() if k != "alarm_archive"}
+                     for policy in ("precision80", "budget")}
+        out[kind]["by_year"] = {str(y): {k: v for k, v in regime3_metrics(yg, events, "precision80").items() if k != "alarm_archive"}
+                                for y, yg in g.groupby(g.time.dt.year)}
+        out[kind]["by_asset"] = {s: {k: v for k, v in regime3_metrics(sg, events, "precision80").items() if k != "alarm_archive"}
+                                 for s, sg in g.groupby("symbol")}
+    base = forecasts.loc[forecasts.model.eq("structural")]
+    for kind in ("logistic", "xgb"):
+        if kind in out and not base.empty:
+            out[kind]["AP_gain_vs_structural"] = regime3_ap_gain(forecasts.loc[forecasts.model.eq(kind)], base)
+    return out
+
+
+def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
+    """DEV-only pooled core-5 regime v3; --regime3-scope tune never scores 2023-2024."""
+    for a in assets.values():
+        if (a.time >= pd.Timestamp(DEV_END, tz="UTC")).any():
+            raise ValueError("Regime v3 cannot access sealed 2025+ observations")
+    started = time.perf_counter()
+    d, events = regime3_frame(assets)
+    kinds = tuple(args.regime3_models.split(","))
+    forecasts, folds = regime3_walk_forward(d, events, kinds, args.regime3_scope, args.xgb_threads)
+    report = regime3_report(forecasts, events)
+    result = {"scope": args.regime3_scope, "evaluation": ["2021-01-01", REGIME3_TUNE_END if args.regime3_scope == "tune" else DEV_END],
+              "assets": sorted(assets), "configs": {"logistic": REGIME3_LOGIT, "xgb": REGIME3_XGB},
+              "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "folds": folds, "models": report,
+              "runtime_seconds": time.perf_counter()-started, "sealed_data_used": False}
+    if args.forecasts:
+        atomic_write(Path(args.forecasts), lambda f: forecasts.to_csv(f, index=False))
+    atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
+    brief = {k: {p: {m: v[p].get(m) for m in ("alarms", "hits", "precision", "precision_wilson95", "recall", "scoreable_events", "event_AP")}
+                 for p in ("precision80", "budget")} for k, v in report.items()}
+    print(json.dumps({"scope": args.regime3_scope, "summary": brief, "runtime_seconds": result["runtime_seconds"]}, indent=2, default=str))
+    return result
+
+
 # Per-invocation performance evidence (kept separate from scientific evidence).
 _PERF_TIMINGS: dict[str, dict] = {}
 _PERF_CONTEXT: dict = {}
@@ -3073,6 +3419,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--research", action="store_true", help="Run locked BTC DEV market study + nested H1-A feasibility, not H1-A trades")
     parser.add_argument("--multi-research", action="store_true", help="Run historical core-5 H1-A/B/C, funding and 3R/5R studies; never opens sealed data")
     parser.add_argument("--regime-research", action="store_true", help="Four-year DEV-only XGBoost regime forecasts and original H1-A comparison")
+    parser.add_argument("--regime3", action="store_true", help="Pooled core-5 DEV regime v3 (shared harness for logistic/XGB)")
+    parser.add_argument("--regime3-scope", choices=["tune", "final"], default="tune", help="tune scores 2021-2022 only; final scores 2021-2024")
+    parser.add_argument("--regime3-models", default="no_event,prior,structural,logistic,xgb")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
     parser.add_argument("--forecasts", default=None)
@@ -3122,6 +3471,21 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--trials must be >= 1")
     if args.self_test:
         self_test()
+        return
+    if args.regime3:
+        if args.unlock_oos or args.research or args.multi_research or args.regime_research:
+            parser.error("--regime3 is a separate DEV-only study; sealed OOS cannot be opened")
+        file = Path(args.csv if args.csv != "btc_4h.csv" else "core5_4h.csv")
+        if not file.exists():
+            download_core5_dev(file)
+        raw = pd.read_csv(file, float_precision="round_trip")
+        assets, _ = validate_core5(raw, file)
+        supplied = sys.argv[1:] if argv is None else argv
+        if not any(a == "--evidence" or a.startswith("--evidence=") for a in supplied):
+            args.evidence = f"regime3_{args.regime3_scope}.json"
+        if not any(a == "--forecasts" or a.startswith("--forecasts=") for a in supplied):
+            args.forecasts = f"regime3_{args.regime3_scope}_forecasts.csv"
+        regime3_run(assets, args)
         return
 
     start_date = DEV_END if args.unlock_oos else DEV_START
