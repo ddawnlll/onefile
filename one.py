@@ -2824,11 +2824,14 @@ REGIME3_BUDGET = 12.  # alarms per asset-year for the fixed-budget policy
 REGIME3_MIN_HISTORY_ALARMS = 10
 REGIME3_FIXED = .70   # declared after 2021-2022 tuning; probability rule, not refit per fold
 REGIME3_POLICIES = ("precision80", "budget", "fixed70")
+# Designated after 2021-2022 tuning, committed before any 2023-2024 scoring.
+REGIME3_PRIMARY = ("mc", "fixed70")
+REGIME3_SECONDARY = (("logistic", "precision80"), ("xgb", "budget"))
 # Worker-owned model configs. Changing them must not touch the harness above.
 REGIME3_LOGIT = {"features": ["lrw_up", "lrw_down", "need_up", "need_down", "er_proj"], "C": 1., "class_weight": "sqrt"}
-REGIME3_XGB = {"features": REGIME3_BASE, "max_depth": 2, "min_child_weight": 10., "learning_rate": .05,
+REGIME3_XGB = {"features": REGIME3_STRUCTURAL + ["q", "z20", "er20"], "max_depth": 2, "min_child_weight": 2., "learning_rate": .05,
                "reg_lambda": 10., "reg_alpha": .1, "gamma": .1, "subsample": .8, "colsample_bytree": .8,
-               "max_bin": 64, "max_rounds": 256, "class_weight": "sqrt"}
+               "max_bin": 64, "rounds": 30, "class_weight": "sqrt", "base_margin": True}
 
 
 def regime3_features(d: pd.DataFrame) -> pd.DataFrame:
@@ -2960,15 +2963,13 @@ def _regime3_logit_head(fit: pd.DataFrame, cal: pd.DataFrame, target: Callable, 
 
 def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibration: pd.DataFrame,
                 threads: int = 1) -> tuple[Callable[[pd.DataFrame], np.ndarray], dict]:
-    """Return predict(rows)->[none, up, down]. Event/direction heads, sigmoid calibration later.
+    """Return predict(rows)->[none, up, down]; up/down are direct side-specific heads.
 
-    Fit = train+stopping (stopping only picks XGB rounds); calibration fits one
-    sigmoid per head on the later segment. Outer test rows never enter here.
+    Fit = train+stopping; calibration fits one sigmoid per head on the later
+    segment. Outer test rows never enter here.
     """
     from scipy.special import logit
     from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from threadpoolctl import threadpool_limits
     refit = pd.concat([train, stopping])
     info = {"heads": {}}
     if kind == "no_event":
@@ -3002,48 +3003,54 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
             total = np.maximum(1., up+down)
             return np.column_stack([1-(up+down)/total, up/total, down/total])
         return logistic, info
-    heads = []
-    for head in ("event", "direction"):
-        pick = (lambda r: r) if head == "event" else (lambda r: r.loc[r.y.ne(0)])
-        target = (lambda r: r.y.ne(0).to_numpy(int)) if head == "event" else (lambda r: r.y.eq(1).to_numpy(int))
-        tr, va, fit, ca = pick(train), pick(stopping), pick(refit), pick(calibration)
-        detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(target(fit), minlength=2).tolist()}
-        if len(fit) < 20 or len(np.unique(target(fit))) < 2:
-            prior = (target(fit).sum()+1)/(len(fit)+2)
-            raw = lambda rows, prior=prior: np.full(len(rows), prior)
-            detail["fallback"] = "smoothed training prior"
-        elif kind == "xgb":
-            from xgboost import XGBClassifier
-            cfg = REGIME3_XGB; cols = cfg["features"]
-            params = dict(tree_method="hist", device="cpu", n_jobs=threads, random_state=SEED, eval_metric="logloss",
-                          **{k: cfg[k] for k in ("max_depth", "min_child_weight", "learning_rate", "reg_lambda",
-                                                 "reg_alpha", "gamma", "subsample", "colsample_bytree", "max_bin")})
-            rounds = 64
-            if len(np.unique(target(tr))) == 2 and len(va) >= 5 and len(np.unique(target(va))) == 2:
-                probe = XGBClassifier(**params, n_estimators=cfg["max_rounds"], early_stopping_rounds=20)
-                probe.fit(tr[cols].to_numpy(np.float32), target(tr), sample_weight=_regime3_weights(tr, target(tr), cfg["class_weight"]),
-                          eval_set=[(va[cols].to_numpy(np.float32), target(va))], verbose=False)
-                rounds = probe.best_iteration+1
-            model = XGBClassifier(**params, n_estimators=rounds)
-            model.fit(fit[cols].to_numpy(np.float32), target(fit), sample_weight=_regime3_weights(fit, target(fit), cfg["class_weight"]))
-            raw = lambda rows, m=model, c=cols: m.predict_proba(rows[c].to_numpy(np.float32))[:, 1]
-            detail["rounds"] = rounds
-        else:
-            raise ValueError(f"Unknown regime3 model {kind}")
-        cy = target(ca)
-        calibrate = None
-        if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
-            calibrate = LogisticRegression(C=1., solver="lbfgs").fit(logit(np.clip(raw(ca), 1e-6, 1-1e-6))[:, None], cy)
-        detail["calibration"] = "sigmoid on later segment" if calibrate is not None else "identity (<5 per class)"
-        heads.append(lambda rows, raw=raw, cal=calibrate: raw(rows) if cal is None else
-                     cal.predict_proba(logit(np.clip(raw(rows), 1e-6, 1-1e-6))[:, None])[:, 1])
-        info["heads"][head] = detail
-    def predict(rows):
-        if rows.empty:
-            return np.empty((0, 3))
-        e, u = heads[0](rows), heads[1](rows)
-        return np.column_stack([1-e, e*u, e*(1-u)])
-    return predict, info
+    if kind == "xgb":
+        # Two direct side heads (up: q!=+1, down: q!=-1), each a residual on the structural
+        # random-walk logit (base_margin). Sigmoid calibration per head on the later segment.
+        import xgboost as xgb
+        cfg = REGIME3_XGB; cols = cfg["features"]
+        params = {"objective": "binary:logistic", "eval_metric": "logloss", "tree_method": "hist", "device": "cpu",
+                  "nthread": threads, "seed": SEED, "max_depth": cfg["max_depth"], "min_child_weight": cfg["min_child_weight"],
+                  "eta": cfg["learning_rate"], "lambda": cfg["reg_lambda"], "alpha": cfg["reg_alpha"], "gamma": cfg["gamma"],
+                  "subsample": cfg["subsample"], "colsample_bytree": cfg["colsample_bytree"], "max_bin": cfg["max_bin"]}
+        def margin(rows, col):
+            if not cfg["base_margin"]:
+                return np.zeros(len(rows))
+            return logit(np.clip(rows[col].to_numpy(float), 1e-6, 1-1e-6))
+        def dmatrix(rows, target, col, weights=True):
+            w = _regime3_weights(rows, target, cfg["class_weight"]) if weights else None
+            return xgb.DMatrix(rows[cols].to_numpy(np.float32), label=target, weight=w, base_margin=margin(rows, col))
+        heads = []
+        for side, col, name in ((1, "rw_up", "up"), (-1, "rw_down", "down")):
+            pick = lambda r, s=side: r.loc[r.q.ne(s)]
+            target = lambda r, s=side: r.y.eq(s).to_numpy(int)
+            fit, ca = pick(refit), pick(calibration)
+            detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(target(fit), minlength=2).tolist()}
+            if len(fit) < 20 or len(np.unique(target(fit))) < 2:
+                prior = (target(fit).sum()+1)/(len(fit)+2)
+                raw = lambda rows, prior=prior: np.full(len(rows), prior)
+                detail["fallback"] = "smoothed training prior"
+            else:
+                rounds = cfg["rounds"]
+                mono = "(" + ",".join("1" if c == col else "0" for c in cols) + ")"
+                booster = xgb.train({**params, "monotone_constraints": mono}, dmatrix(fit, target(fit), col), num_boost_round=rounds)
+                raw = lambda rows, b=booster, c=col: b.predict(xgb.DMatrix(rows[cols].to_numpy(np.float32), base_margin=margin(rows, c)))
+                detail["rounds"] = rounds
+            cy = target(ca)
+            calibrate = None
+            if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
+                calibrate = LogisticRegression(C=1., solver="lbfgs").fit(logit(np.clip(raw(ca), 1e-6, 1-1e-6))[:, None], cy)
+            detail["calibration"] = "sigmoid on later segment" if calibrate is not None else "identity (<5 per class)"
+            info["heads"][name] = detail
+            heads.append(lambda rows, raw=raw, cal=calibrate: raw(rows) if cal is None else
+                         cal.predict_proba(logit(np.clip(raw(rows), 1e-6, 1-1e-6))[:, None])[:, 1])
+        def predict_xgb(rows):
+            if rows.empty:
+                return np.empty((0, 3))
+            up = np.where(rows.q.eq(1), 0., heads[0](rows)); down = np.where(rows.q.eq(-1), 0., heads[1](rows))
+            total = np.maximum(1., up+down)
+            return np.column_stack([1-(up+down)/total, up/total, down/total])
+        return predict_xgb, info
+    raise ValueError(f"Unknown regime3 model {kind}")
 
 
 def _regime3_candidates(rows: pd.DataFrame, p: np.ndarray, events: pd.DataFrame) -> dict:
@@ -3246,6 +3253,8 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
             model["untouched_2023_2024"] = {p: {k: v for k, v in regime3_metrics(g, events, p).items() if k != "alarm_archive"}
                                             for p in REGIME3_POLICIES}
             model["gate"] = {p: regime3_gate(model, p) for p in REGIME3_POLICIES}
+        kind, policy = REGIME3_PRIMARY
+        report["verdict"] = {"primary": list(REGIME3_PRIMARY), **report[kind]["gate"][policy]}
     result = {"scope": args.regime3_scope, "evaluation": ["2021-01-01", REGIME3_TUNE_END if args.regime3_scope == "tune" else DEV_END],
               "assets": sorted(assets), "configs": {"logistic": REGIME3_LOGIT, "xgb": REGIME3_XGB},
               "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "folds": folds, "models": report,
@@ -3254,7 +3263,8 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
         atomic_write(Path(args.forecasts), lambda f: forecasts.to_csv(f, index=False))
     atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
     brief = {k: {p: {m: v[p].get(m) for m in ("alarms", "hits", "precision", "precision_wilson95", "recall", "scoreable_events", "event_AP")}
-                 for p in REGIME3_POLICIES} for k, v in report.items()}
+                 for p in REGIME3_POLICIES} for k, v in report.items() if k != "verdict"}
+    brief["verdict"] = report.get("verdict")
     print(json.dumps({"scope": args.regime3_scope, "summary": brief, "runtime_seconds": result["runtime_seconds"]}, indent=2, default=str))
     return result
 
