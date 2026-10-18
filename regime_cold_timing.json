@@ -1,0 +1,6 @@
+{
+  "command": "python one.py --regime-research",
+  "wall_seconds": 18.62553147199992,
+  "returncode": 0,
+  "includes": "cold child imports, data verification, all experiments, file writes and automatic E2E audit"
+}

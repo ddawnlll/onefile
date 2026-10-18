@@ -51,6 +51,53 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 ---
 
 
+## Four-year XGBoost regime forecasting (DEV only)
+
+```bash
+uv sync --frozen
+uv run --no-sync python one.py --download --regime-research
+# Reuse verified canonical archives / CSV:
+uv run --no-sync python one.py --regime-research
+```
+
+See [REGIME_REPORT.md](REGIME_REPORT.md) for the measured comparison and limitations.
+The result is **NO_EDGE**. XGBoost is implemented as an experimental challenger;
+it has not earned promotion over the historical or prior baselines.
+
+The evaluation covers **2021–2024**, with 2020 for initial training. The original
+strict H1-A model is also extended to those four years (one initial training year,
+instead of its original three-year warmup). Its default historical command is
+unchanged. The new task retains the causal `q` state definition, counts every
+crossing including reversals, and asks whether at least 3 of the following 5
+days retain the new direction. It predicts a **future onset in 1–7 days**, not
+today's already-observed regime. Failed crossings remain archived and contribute
+negative outcomes; near-tail outcomes remain censored. More events under a
+different definition do not demonstrate more profitable opportunities.
+
+Two XGBoost binary heads estimate event probability and conditional direction.
+Shallow CPU `hist` trees, capped training class weights, event multiplicity
+weights, early stopping, and sklearn sigmoid calibration are fixed in the
+protocol. Linux x86 uses the official small `xgboost-cpu` wheel; other platforms
+use `xgboost`. `--xgb-threads 1` is the measured default for this small daily set.
+
+Eight six-month outer folds have separate earlier stopping and calibration
+segments. Every split purges the complete label-information window (12 days
+new / 17 days strict) plus a one-day embargo. Both balanced event-F1 and 80%
+precision operating policies select thresholds only in preceding calibration
+data. An unsupported policy is **disabled**, never reported as 100% precision.
+All models use the same opportunities, matching, and metrics within each task.
+The baseline priors are fitted only on preceding training data.
+
+`regime_protocol.json` freezes code/data identity before scoring. Repeating the
+same protocol is permitted; changed code/data requires a new protocol path.
+`regime_evidence.json`, `regime_forecasts.csv`, `regime_onsets.csv`, and
+`regime_daily.csv` retain metrics, original/challenger forecasts, failed/censored
+events, and labels. The [evidence bundle](regime_evidence_bundle.zip) includes
+the exact source, DEV input, forecasts, tests, timings, and first attempt.
+No 2025+ data is downloaded or accepted by this mode. Previously inspected
+2026 data is not used or presented as independent holdout. This is historical
+exploratory forecasting research, not a trading PnL backtest or edge proof.
+
 ## E2E performance audit
 
 Every CLI invocation (including failed studies and `--self-test`) writes an atomic

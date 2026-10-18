@@ -4,3 +4,9 @@ __pycache__/
 *.csv
 perf/
 *.lprof
+regime_attempt*/
+regime_run.log
+regime_run.stderr
+regime_validation*.log
+regime_selftest.log
+regime_cold_timing.txt
