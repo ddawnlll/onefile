@@ -1,16 +1,28 @@
-# ONEFILE — Agent Instructions
+# ONEFILE — Speed First
 
-ONEFILE is a single-file (`one.py`) research project for crypto perpetual futures, using vectorbt. Work autonomously. Trust your own engineering judgment: keep changes simple and focused, reuse existing code, and avoid unnecessary frameworks, files, or process.
+ONEFILE is a single-file (`one.py`) crypto perpetual futures research project using vectorbt. Optimize for fast, correct task completion. Work autonomously, trust your engineering judgment, and keep the solution small.
 
-- Read `one.py` fully when necessary to understand the task; afterwards, read only the relevant unchanged sections. Consult official docs when API behavior is uncertain.
-- Keep research on DEV data. Never access or unlock sealed OOS (`--unlock-oos`) without explicit user authorization.
-- Avoid leakage, overfitting, and unrealistic trading assumptions. Account for fees, slippage, and funding. Treat exploratory results as hypotheses, not proven edge; never present stale evidence as current proof.
+## Working
 
-## Testing and iteration
+- For a clear task, locate the relevant code and implement it directly. Skip formal plans, broad audits, and unrelated cleanup unless the task needs them.
+- Read only what you need. Read all of `one.py` only when the change requires understanding the whole file. Reuse context; do not reread unchanged code or instructions.
+- Batch independent searches and reads. Make coherent edits before checking them; avoid edit/check loops after every small change.
+- Reuse existing functions, dependencies, data, and cached results. Add files, abstractions, dependencies, or tests only when they solve a concrete need. Keep research logic in `one.py`.
+- Consult official docs when API behavior is uncertain; stop researching once the uncertainty is resolved. Do not ask the user about routine, reversible implementation choices.
 
-- **Do not run the full test suite after each edit.** During development, run small, relevant checks only when useful. Use your judgment; no mandatory test after every change.
-- **Run the full relevant test suite once at the end**, after the final changes, before claiming the work is verified. If it fails and you fix the code, verify the new final revision again. Never present an interrupted or outdated run as passing.
-- Reuse existing market data and funding files when valid. Do not re-download, revalidate, or rerun long experiments without a concrete reason. Avoid repeating identical failing commands without a change in approach.
-- Distinguish coding tests (including synthetic `--self-test`) from real-market research evidence. Preserve reproducibility and report actual results, not assumptions.
+## Verification
 
-Finish with a concise summary of what changed, what was actually tested, and what remains unverified.
+- Choose the smallest check that meaningfully covers the changed behavior. There is no mandatory full-suite run at task end.
+- Documentation, comments, and formatting need no runtime tests. Local behavior changes normally need only the relevant existing test or a focused check. Add a regression test when it provides lasting value.
+- Run the full suite for broad changes whose effects cannot be covered reliably with focused checks, or when explicitly requested. Run it once on the final revision; after a fix, rerun affected checks and broaden only if needed.
+- Reuse passing results for unchanged behavior. Do not rerun checks merely for reassurance. Never call an older revision verified if later edits affect what was tested.
+- Do not launch downloads, long experiments, or full research runs to validate an ordinary code edit. Reuse valid market and funding files. Retry a failed command only after addressing its cause or changing approach.
+- Report exactly what ran and passed. Focused checks are not a full-suite pass; synthetic tests are not market evidence.
+
+## Performance and research
+
+- For speed tasks, time the requested operation, fix the measured bottleneck, and compare equivalent before/after runs. Separate cold startup/JIT from warm execution. Do not claim speedups without measurements or change results to meet a time target.
+- Use DEV data only. Never access or unlock sealed OOS (`--unlock-oos`) without explicit user authorization.
+- Preserve leakage controls, realistic execution, fees, slippage, and funding. Exploratory results remain hypotheses; stale evidence is not current proof.
+
+Finish briefly: what changed, checks actually run, and any material uncertainty. Stop when the requested work is complete.
