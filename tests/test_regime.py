@@ -182,5 +182,29 @@ class RegimeAuditTests(unittest.TestCase):
             one.main(["--regime3", "--regime3-universe", "holdout", "--regime3-scope", "tune"])
 
 
+class DirectionV5Tests(unittest.TestCase):
+    def test_direction_features_are_causal_and_labels_are_forward_only(self):
+        x = market_frame("2020-01-01", "2021-06-01", varying=True)
+        empty = pd.DataFrame(columns=["vol", "taker"], index=pd.DatetimeIndex([], tz="UTC", name="day"))
+        before = one.direction_daily(x, empty)
+        changed = x.copy()
+        changed.loc[720:, ["open", "high", "low", "close", "volume", "funding_rate"]] *= 3
+        after = one.direction_daily(changed, empty)
+        cols = one.DIR_PRICE[:-1]
+        assert_frame_equal(before.loc[:118, cols], after.loc[:118, cols])
+        for h in one.DIR_HORIZONS:
+            self.assertTrue(before[f"y{h}"].tail(h).isna().all())
+
+    def test_cooldown_blocks_repeat_alarms_within_five_days(self):
+        n = 12
+        rows = pd.DataFrame({"symbol": "BTCUSDT", "day": pd.date_range("2021-01-01", periods=n, tz="UTC"),
+                             "p_down": .05, "p_neutral": .05, "p_up": .9, "y5": 1., "Z5": 1., "r_fwd5": .02,
+                             "fund_fwd5": 0., "close": 1., "funding": 0., "y3": 1., "Z3": 1., "y7": 1., "Z7": 1.,
+                             "model": "m", "h": 5, "split": "test", "block": "2021-01-01"})
+        cal = rows.copy(); cal["split"] = "cal"; cal["p_up"] = np.linspace(.1, .9, n)
+        out = one.direction_evaluate(pd.concat([cal, rows], ignore_index=True), "m", 5)
+        self.assertEqual(out["alarms"], 3)  # days 0, 5, 10 after a 5-day cooldown
+
+
 if __name__ == "__main__":
     unittest.main()

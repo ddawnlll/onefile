@@ -3592,6 +3592,267 @@ def regime_return_gate(assets: dict[str, pd.DataFrame], out: Path) -> dict:
     return result
 
 
+# Direction v5 (ONEFILE market-mechanisms plan). Pre-registered before any scoring.
+# Primary: 5-day normalized direction (3-class) from causal price/funding/flow features;
+# 3 and 7 days secondary. DEV only (2020-2024), BTCUSDT and ETHUSDT.
+DIR_PROTOCOL = {
+    "study": "ONEFILE-DIRECTION-V5-DEV-PRE-REG",
+    "symbols": ["BTCUSDT", "ETHUSDT"],
+    "decision": "completed daily bar t; features use only bars up to t; available at t+1 00:00 UTC",
+    "target": "Z_h = (log close_{t+h} - log close_t) / (s_t sqrt(h)); UP if Z>0.75, DOWN if Z<-0.75, else NEUTRAL",
+    "scale": "s_t = EWMA of squared daily log returns, half-life 21 days",
+    "primary": {"model": "logit_full", "horizon": 5}, "secondary_horizons": [3, 7],
+    "baselines": ["prior", "persist_m3", "momentum_m21", "logit_price"],
+    "candidates": ["logit_price", "logit_full", "xgb_price", "xgb_full"],
+    "features": {"price": "m1 m3 m7 m21 accel3 eff7 breakout21 compression3_21 log_risk21 relvol3 close_loc causal_age",
+                 "funding": "funding3 z90 and 7-day change (spot not available: no cached spot klines)",
+                 "flow": "perp taker-buy ratio 3d and 21d (cached futures klines; OI not cached for 2020-2021)"},
+    "test": "90-day blocks from 2021-01-01 to 2024-12-31; labels needing 2025 data are dropped (sealed)",
+    "purge": "training pool requires t+7 < block_start-8 (7-day label horizon + 8-day embargo)",
+    "calibration": "last 90 days of pool; stopping: previous 90 days (XGB rounds only); temperature scaling",
+    "coverage": 0.20, "cooldown_days": 5, "costs": "fee+slippage 4+2 bp per side on entry and exit; funding paid over held days",
+    "gate": "precision>=0.80, Wilson lower>=0.70, realized coverage>=0.10, UP+DOWN recall>=0.20, alarms>=100, "
+            ">=4 blocks with alarms, precision above persist_m3 at the same coverage, net mean block-CI lower>0",
+    "deviation": "history starts 2020-01-01: the 24-month warm-up is impossible; first blocks have thin fit sets",
+    "sealed_data_used": False}
+DIR_THRESHOLD_Z, DIR_HALFLIFE, DIR_BLOCK_DAYS, DIR_EMBARGO_DAYS = .75, 21, 90, 8
+DIR_COST_BP = FEE_BPS+SLIPPAGE_BPS  # per side
+DIR_COVERAGE, DIR_COOLDOWN, DIR_HORIZONS = .20, 5, (3, 5, 7)
+DIR_PRICE = ["m1", "m3", "m7", "m21", "accel3", "eff7", "breakout21", "compression3_21", "log_risk21", "relvol3", "close_loc", "causal_age"]
+DIR_FUND, DIR_FLOW = ["fund_z90", "fund_chg7"], ["taker3", "taker21"]
+DIR_MODELS = {"prior": None, "persist_m3": ["m3"], "momentum_m21": ["m21"], "logit_price": DIR_PRICE,
+              "logit_full": DIR_PRICE+DIR_FUND+DIR_FLOW, "xgb_price": DIR_PRICE, "xgb_full": DIR_PRICE+DIR_FUND+DIR_FLOW}
+
+
+def direction_taker_daily(symbol: str) -> pd.DataFrame:
+    """Perp taker-buy base volume per UTC day from CACHED futures 4h klines (no download)."""
+    parts = []
+    for ym in pd.date_range(CORE5_FIRST_MONTH[symbol], DEV_END, freq="MS", inclusive="left").strftime("%Y-%m"):
+        payload = cached_archive(f"{DATA_SOURCE}/klines/{symbol}/{INTERVAL}/{symbol}-{INTERVAL}-{ym}.zip", "onefile-core5-research/1.0")
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive, archive.open(archive.namelist()[0]) as stream:
+            bars = pd.read_csv(stream, header=None, usecols=[0, 5, 9])
+        bars = bars[pd.to_numeric(bars[0], errors="coerce").notna()]
+        parts.append(pd.DataFrame({"day": pd.to_datetime(bars[0].astype("int64"), unit="ms", utc=True).dt.floor("D"),
+                                   "vol": bars[5].astype(float), "taker": bars[9].astype(float)}))
+    return pd.concat(parts).groupby("day").sum()
+
+
+def direction_daily(a: pd.DataFrame, taker: pd.DataFrame) -> pd.DataFrame:
+    """Causal daily features and normalized targets for one asset (features use bars up to t)."""
+    d = daily_market(a).set_index("day")
+    d = d.join(taker, how="left")
+    c, r = np.log(d.close), np.log(d.close).diff()
+    alpha = 1-.5**(1/DIR_HALFLIFE)
+    s = np.sqrt((r**2).ewm(alpha=alpha, adjust=False).mean())
+    m = {k: (c-c.shift(k))/(s*np.sqrt(k)) for k in (1, 3, 7, 21)}
+    out = pd.DataFrame(index=d.index)
+    out["close"], out["funding"], out["s"] = d.close, d.funding, s
+    out["m1"], out["m3"], out["m7"], out["m21"] = m[1], m[3], m[7], m[21]
+    out["accel3"] = m[3]-m[3].shift(1)
+    out["eff7"] = (c-c.shift(7)).abs()/r.abs().rolling(7).sum().clip(lower=1e-12)
+    hi, lo = d.high.shift(1).rolling(21).max(), d.low.shift(1).rolling(21).min()
+    out["breakout21"] = (d.close-lo)/(hi-lo).clip(lower=1e-12)
+    rv3, rv21 = np.sqrt(r.pow(2).rolling(3).mean()), np.sqrt(r.pow(2).rolling(21).mean())
+    out["compression3_21"] = rv3/rv21.clip(lower=1e-12)
+    out["log_risk21"] = np.log(rv21.clip(lower=1e-12))
+    qv = d.volume*d.close
+    out["relvol3"] = np.log(qv.rolling(3).mean()/qv.shift(3).rolling(21).mean().clip(lower=1e-12))
+    out["close_loc"] = (d.close-d.low)/(d.high-d.low).clip(lower=1e-12)
+    state = np.where(m[3] > .25, 1, np.where(m[3] < -.25, -1, 0))
+    age, run = np.zeros(len(state)), 0
+    for i, st in enumerate(state):
+        run = run+1 if i and st == state[i-1] and st != 0 else (1 if st != 0 else 0)
+        age[i] = min(run, DIR_HALFLIFE)
+    out["causal_age"] = age
+    f3 = d.funding.rolling(3).sum()
+    out["fund_z90"] = (f3-f3.shift(1).rolling(90).mean())/f3.shift(1).rolling(90).std().clip(lower=1e-12)
+    out["fund_chg7"] = (f3-f3.shift(7))/f3.shift(1).rolling(90).std().clip(lower=1e-12)
+    tk = 2*d.taker/d.vol.clip(lower=1e-12)-1
+    out["taker3"], out["taker21"] = tk.rolling(3).mean(), tk.rolling(21).mean()
+    for h in DIR_HORIZONS:
+        z = (c.shift(-h)-c)/(s*np.sqrt(h))
+        out[f"Z{h}"] = z
+        out[f"y{h}"] = np.where(z > DIR_THRESHOLD_Z, 1, np.where(z < -DIR_THRESHOLD_Z, -1, 0)).astype(float)
+        out.loc[z.isna(), f"y{h}"] = np.nan
+    out["r_fwd5"] = c.shift(-5)-c
+    out["fund_fwd5"] = d.funding.rolling(5).sum().shift(-5)
+    return out.reset_index()
+
+
+def direction_panel(assets: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    frames = []
+    for symbol in DIR_PROTOCOL["symbols"]:
+        f = direction_daily(assets[symbol], direction_taker_daily(symbol))
+        f["symbol"] = symbol
+        frames.append(f)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _direction_fit(kind: str, cols: list[str], fit: pd.DataFrame, stop: pd.DataFrame, cal: pd.DataFrame,
+                   test: pd.DataFrame, h: int) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Calibrated [down, neutral, up] probabilities for calibration and test rows (no test fitting)."""
+    from scipy.optimize import minimize_scalar
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    y_name = f"y{h}"
+    train = pd.concat([fit, stop]).dropna(subset=cols+[y_name])
+    yi = train[y_name].to_numpy(int)+1
+    info = {"fit_rows": int(len(fit)), "train_rows": int(len(train)), "class_counts": np.bincount(yi, minlength=3).tolist()}
+    if len(train) < 30 or len(np.unique(yi)) < 3:
+        prior = (np.bincount(yi, minlength=3)+1)/(len(yi)+3)
+        pc, pt = np.tile(prior, (len(cal), 1)), np.tile(prior, (len(test), 1))
+        info["fallback"] = "smoothed prior"
+    elif kind == "xgb":
+        from xgboost import XGBClassifier
+        params = dict(objective="multi:softprob", num_class=3, tree_method="hist", max_depth=2, min_child_weight=10.,
+                      learning_rate=.05, reg_lambda=10., reg_alpha=.1, gamma=.1, subsample=.8, colsample_bytree=.8,
+                      max_bin=64, random_state=SEED, n_jobs=1, eval_metric="mlogloss")
+        xf = fit.dropna(subset=cols+[y_name])
+        sf = stop.dropna(subset=cols+[y_name])
+        probe = XGBClassifier(**params, n_estimators=200, early_stopping_rounds=20)
+        probe.fit(xf[cols].to_numpy(np.float32), xf[y_name].to_numpy(int)+1,
+                  eval_set=[(sf[cols].to_numpy(np.float32), sf[y_name].to_numpy(int)+1)], verbose=False)
+        rounds = probe.best_iteration+1
+        model = XGBClassifier(**params, n_estimators=rounds).fit(train[cols].to_numpy(np.float32), yi)
+        info["rounds"] = rounds
+        pc = model.predict_proba(cal[cols].fillna(0).to_numpy(np.float32))
+        pt = model.predict_proba(test[cols].fillna(0).to_numpy(np.float32))
+    else:
+        scaler = StandardScaler().fit(train[cols].to_numpy())
+        model = LogisticRegression(C=1., max_iter=1000).fit(scaler.transform(train[cols].to_numpy()), yi)
+        pc = model.predict_proba(scaler.transform(cal[cols].fillna(0).to_numpy()))
+        pt = model.predict_proba(scaler.transform(test[cols].fillna(0).to_numpy()))
+        info["coef"] = np.round(model.coef_, 3).tolist()
+    cy = cal[y_name].to_numpy(int)+1 if len(cal) else np.empty(0, int)
+    keep = np.isfinite(pc).all(axis=1) & np.isin(cy, [0, 1, 2]) if len(cal) else np.empty(0, bool)
+    T = 1.
+    if keep.sum() >= 30:
+        logp = np.log(np.clip(pc[keep], 1e-12, 1))
+        def nll(t):
+            z = logp/t
+            z = z-z.max(axis=1, keepdims=True)
+            q = np.exp(z)/np.exp(z).sum(axis=1, keepdims=True)
+            return -np.mean(np.log(np.clip(q[np.arange(len(cy[keep])), cy[keep]], 1e-12, 1)))
+        T = float(minimize_scalar(nll, bounds=(.05, 20), method="bounded").x)
+    def apply(p):
+        z = np.log(np.clip(p, 1e-12, 1))/T
+        z = z-z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e/e.sum(axis=1, keepdims=True)
+    info["temperature"] = T
+    return apply(pc), apply(pt), info
+
+
+def direction_walk(panel: pd.DataFrame, models: list[str], horizons: tuple[int, ...]) -> pd.DataFrame:
+    """Purged expanding walk-forward; each test row is predicted once per model and horizon."""
+    rows, folds = [], []
+    last_label_day = panel.day.max()
+    # Same complete-feature rows for every model, so differences are not sample artifacts.
+    panel = panel.dropna(subset=sorted(set(DIR_PRICE+DIR_FUND+DIR_FLOW)))
+    for start in pd.date_range("2021-01-01", "2024-12-31", freq=f"{DIR_BLOCK_DAYS}D", tz="UTC"):
+        end = min(start+pd.Timedelta(days=DIR_BLOCK_DAYS), pd.Timestamp("2025-01-01", tz="UTC"))
+        pool_end = start-pd.Timedelta(days=7+DIR_EMBARGO_DAYS)
+        pool = panel.loc[panel.day < pool_end]
+        cal = pool.loc[pool.day >= pool_end-pd.Timedelta(days=DIR_BLOCK_DAYS)]
+        stop = pool.loc[(pool.day >= pool_end-pd.Timedelta(days=2*DIR_BLOCK_DAYS)) & (pool.day < pool_end-pd.Timedelta(days=DIR_BLOCK_DAYS))]
+        fit = pool.loc[pool.day < pool_end-pd.Timedelta(days=2*DIR_BLOCK_DAYS)]
+        test = panel.loc[(panel.day >= start) & (panel.day < end) & (panel.day <= last_label_day)]
+        record = {"block": str(start.date()), "fit": len(fit), "stop": len(stop), "cal": len(cal), "test": len(test), "models": {}}
+        for name in models:
+            cols = DIR_MODELS[name]
+            for h in horizons:
+                if cols is None:
+                    prior_fit = pd.concat([fit, stop]).dropna(subset=[f"y{h}"])
+                    cls = np.bincount(prior_fit[f"y{h}"].to_numpy(int)+1, minlength=3)+1
+                    p = cls/cls.sum()
+                    pc, pt, info = np.tile(p, (len(cal), 1)), np.tile(p, (len(test), 1)), {"fallback": "training frequencies"}
+                elif len(cols) == 1:
+                    pc, pt, info = _direction_fit("logit", cols, fit, stop, cal, test, h)
+                else:
+                    kind = "xgb" if name.startswith("xgb") else "logit"
+                    pc, pt, info = _direction_fit(kind, cols, fit, stop, cal, test, h)
+                record["models"][f"{name}/h{h}"] = info
+                for split, frame, p in (("cal", cal, pc), ("test", test, pt)):
+                    part = frame[["symbol", "day", "close", "funding", f"y{h}", f"Z{h}", "r_fwd5", "fund_fwd5"]].copy()
+                    part[["p_down", "p_neutral", "p_up"]] = p
+                    part["model"], part["h"], part["split"], part["block"] = name, h, split, str(start.date())
+                    rows.append(part)
+        folds.append(record)
+    out = pd.concat(rows, ignore_index=True)
+    out.attrs["folds"] = folds
+    return out
+
+
+def direction_evaluate(pred: pd.DataFrame, name: str, h: int) -> dict:
+    """Coverage-20% alarms (threshold from the block's calibration rows), 5-day cooldown per asset,
+    precision/recall per direction, proper scores and cost-adjusted net economics on the same rows."""
+    from sklearn.metrics import average_precision_score
+    sub = pred.loc[(pred.model == name) & (pred.h == h)]
+    cal, test = sub.loc[sub.split == "cal"].copy(), sub.loc[sub.split == "test"].dropna(subset=[f"y{h}"]).copy()
+    if test.empty:
+        return {"N": 0}
+    cal["score"] = np.maximum(cal.p_up, cal.p_down)
+    thr = cal.groupby("block").score.quantile(1-DIR_COVERAGE)
+    test["score"] = np.maximum(test.p_up, test.p_down)
+    test["dir"] = np.where(test.p_up >= test.p_down, 1, -1)
+    test["raw"] = test.score >= test.block.map(thr).astype(float)
+    test = test.sort_values(["symbol", "day"]).reset_index(drop=True)
+    alarm, last = np.zeros(len(test), bool), {}
+    for i, row in enumerate(test.itertuples()):
+        if row.raw and (row.symbol not in last or (row.day-last[row.symbol]).days >= DIR_COOLDOWN):
+            alarm[i], last[row.symbol] = True, row.day
+    test["alarm"] = alarm
+    y = test[f"y{h}"].to_numpy(int)
+    al = test.loc[test.alarm]
+    correct = al.dir.to_numpy() == al[f"y{h}"].to_numpy(int)
+    precision = float(correct.mean()) if len(al) else None
+    wilson = _wilson(int(correct.sum()), len(al)) if len(al) else [None, None]
+    up_true, down_true = (y == 1), (y == -1)
+    net = al.dir*al.r_fwd5-al.dir*al.fund_fwd5-2*DIR_COST_BP/1e4
+    ev = al.assign(hit=correct, net=net.to_numpy())
+    ci = _calendar_mean_ci(ev.assign(onset_time=ev.day).reset_index(drop=True), "net") if len(ev) else None
+    return {"N": int(len(test)), "alarms": int(len(al)), "coverage_realized": float(len(al)/len(test)),
+            "precision": precision, "precision_wilson95": wilson,
+            "recall_up": float((ev.dir.eq(1) & ev[f"y{h}"].eq(1)).sum()/max(up_true.sum(), 1)),
+            "recall_down": float((ev.dir.eq(-1) & ev[f"y{h}"].eq(-1)).sum()/max(down_true.sum(), 1)),
+            "recall_combined": float(correct.sum()/max((y != 0).sum(), 1)),
+            "alarms_up": int(ev.dir.eq(1).sum()), "alarms_down": int(ev.dir.eq(-1).sum()),
+            "alarm_blocks": int(ev.block.nunique()),
+            "AP_up": float(average_precision_score(up_true, test.p_up)) if up_true.any() else None,
+            "AP_down": float(average_precision_score(down_true, test.p_down)) if down_true.any() else None,
+            "base_up": float(up_true.mean()), "base_down": float(down_true.mean()),
+            "logloss": float(-np.mean(np.log(np.clip(test[["p_down", "p_neutral", "p_up"]].to_numpy()[np.arange(len(y)), y+1], 1e-12, 1)))),
+            "brier": float(np.mean(np.sum((test[["p_down", "p_neutral", "p_up"]].to_numpy()-np.eye(3)[y+1])**2, axis=1))),
+            "net_mean_per_trade": float(net.mean()) if len(ev) else None, "net_ci95": ci["ci95"] if ci else None,
+            "gross_mean_per_trade": float((ev.dir*ev.r_fwd5).mean()) if len(ev) else None,
+            "hit_rate": float(correct.mean()) if len(ev) else None}
+
+
+def direction_run(assets: dict[str, pd.DataFrame], args) -> dict:
+    started = time.perf_counter()
+    panel = direction_panel(assets)
+    panel = panel.loc[panel.symbol.isin(DIR_PROTOCOL["symbols"])]
+    pred = direction_walk(panel, list(DIR_MODELS), DIR_HORIZONS)
+    result = {"protocol": DIR_PROTOCOL, "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "panel_rows": int(len(panel)), "folds": pred.attrs.get("folds", []), "metrics": {}}
+    for name in DIR_MODELS:
+        for h in DIR_HORIZONS:
+            result["metrics"][f"{name}/h{h}"] = direction_evaluate(pred, name, h)
+    primary = result["metrics"][f"{DIR_PROTOCOL['primary']['model']}/h{DIR_PROTOCOL['primary']['horizon']}"]
+    base = result["metrics"][f"persist_m3/h{DIR_PROTOCOL['primary']['horizon']}"]
+    passed = (primary.get("precision") is not None and primary["precision"] >= .80 and primary["precision_wilson95"][0] >= .70
+              and primary["coverage_realized"] >= .10 and primary["recall_combined"] >= .20 and primary["alarms"] >= 100
+              and primary["alarm_blocks"] >= 4 and primary["precision"] > base["precision"]
+              and primary["net_ci95"] is not None and primary["net_ci95"][0] > 0)
+    result["verdict"] = "PASS_DIRECTION_DEV" if passed else "NO_EDGE_DIRECTION_DEV"
+    result["runtime_seconds"] = time.perf_counter()-started
+    out = Path(args.evidence or "artifacts/direction/direction_v5_dev.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(out, lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
+    pred.to_csv(out.with_name(out.stem+"_predictions.csv.gz"), index=False, compression="gzip")
+    return result
+
+
 # Per-invocation performance evidence (kept separate from scientific evidence).
 _PERF_TIMINGS: dict[str, dict] = {}
 _PERF_CONTEXT: dict = {}
@@ -3859,6 +4120,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--artifacts-dir", default="artifacts/regime", help="Per-run audit artifacts root ('' disables)")
     parser.add_argument("--regime3-reference", default=None, help="Evidence JSON whose metrics must be reproduced (parity)")
     parser.add_argument("--return-gate", action="store_true", help="Pre-registered tune-years (2021-2022) directional return gate for confirmed onsets")
+    parser.add_argument("--direction", action="store_true", help="Pre-registered v5 direction study (DEV, BTC/ETH)")
     parser.add_argument("--regime3-models", default="no_event,prior,structural,mc,logistic,xgb")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
@@ -3909,6 +4171,16 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--trials must be >= 1")
     if args.self_test:
         self_test()
+        return
+    if args.direction:
+        if args.unlock_oos or args.regime3 or args.return_gate or args.research or args.multi_research or args.regime_research:
+            parser.error("--direction is a standalone DEV study")
+        file = Path("core5_4h.csv")
+        raw = pd.read_csv(file, float_precision="round_trip")
+        assets, _ = validate_core5(raw, file)
+        result = direction_run(assets, args)
+        print(json.dumps({"verdict": result["verdict"], "panel_rows": result["panel_rows"],
+                          "primary": result["metrics"]["logit_full/h5"]}, indent=2, default=str))
         return
     if args.return_gate:
         if args.unlock_oos or args.regime3 or args.research or args.multi_research or args.regime_research:
