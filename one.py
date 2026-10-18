@@ -3525,6 +3525,72 @@ def regime_audit(d: pd.DataFrame, events: pd.DataFrame, forecasts: pd.DataFrame,
     return out
 
 
+# Return gate (pre-registered before scoring; tune years only). Model-free: it asks
+# whether the DIRECTION of confirmed onsets earns money after costs. Entry is the
+# close of the confirmation day (causal: confirmation_time), exit five days later.
+RETURN_GATE = {"study": "ONEFILE-RETURN-GATE-TUNE-V1", "window_onset": ["2021-01-01", "2023-01-01"],
+               "entry": "close of confirmation day (onset_i+5)", "exit": "close of onset_i+10",
+               "direction": "side of the confirmed onset", "hold_days": 5,
+               "costs": "FEE_BPS and SLIPPAGE_BPS on entry and exit; daily funding paid by the side over the 5 held days",
+               "gate": "net mean block-CI lower > 0 AND directional gross mean block-CI lower > 0 AND net mean > 0 in both 2021 and 2022",
+               "block_days": 28, "draws": 2000, "trials": 1, "sealed_data_used": False}
+
+
+def regime_return_rows(assets: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """One row per confirmed onset in the tune window with a fully observed 5-day hold."""
+    start, end = pd.Timestamp(RETURN_GATE["window_onset"][0], tz="UTC"), pd.Timestamp(RETURN_GATE["window_onset"][1], tz="UTC")
+    cost = 2*(FEE_BPS+SLIPPAGE_BPS)/1e4
+    rows = []
+    for symbol, a in sorted(assets.items()):
+        d, events = regime_labels(regime3_features(daily_market(a)))
+        d = d.reset_index(drop=True)
+        for e in events.loc[events.status.eq("CONFIRMED")].itertuples():
+            i = int(e.onset_i)
+            if not (start <= e.onset_time < end) or i+10 >= len(d):
+                continue
+            entry, exit_ = d.close.iloc[i+5], d.close.iloc[i+10]
+            funding = d.funding.iloc[i+6:i+11]
+            if not (np.isfinite([entry, exit_]).all() and len(funding) == 5 and funding.notna().all()):
+                continue
+            gross = e.side*np.log(exit_/entry)
+            funding_cost = e.side*funding.sum()
+            rows.append({"symbol": symbol, "onset_time": e.onset_time, "side": int(e.side), "gross_signed": gross,
+                         "funding_cost": funding_cost, "cost": cost, "net": gross-funding_cost-cost})
+    return pd.DataFrame(rows)
+
+
+def _calendar_mean_ci(frame: pd.DataFrame, column: str) -> dict:
+    """Paired 28-day calendar-block bootstrap of the mean; assets sharing a date stay together."""
+    t0 = frame.onset_time.min()
+    block = ((frame.onset_time-t0).dt.days//RETURN_GATE["block_days"]).to_numpy()
+    groups = [np.flatnonzero(block == g) for g in range(block.max()+1)]
+    groups = [g for g in groups if len(g)]
+    values = frame[column].to_numpy(float)
+    rng = np.random.default_rng(SEED)
+    draws = [values[np.concatenate([groups[k] for k in rng.integers(0, len(groups), len(groups))])].mean()
+             for _ in range(RETURN_GATE["draws"])]
+    return {"mean": float(values.mean()), "ci95": np.quantile(draws, [.025, .975]).tolist()}
+
+
+def regime_return_gate(assets: dict[str, pd.DataFrame], out: Path) -> dict:
+    rows = regime_return_rows(assets)
+    if rows.empty:
+        raise ValueError("No confirmed tune-window onsets with a complete hold")
+    net, gross = _calendar_mean_ci(rows, "net"), _calendar_mean_ci(rows, "gross_signed")
+    years = {str(y): {"n": int(len(g)), "net_mean": float(g.net.mean()), "gross_mean": float(g.gross_signed.mean())}
+             for y, g in rows.groupby(rows.onset_time.dt.year)}
+    passed = (net["ci95"][0] > 0 and gross["ci95"][0] > 0 and
+              all(years.get(y, {}).get("net_mean", -1) > 0 for y in ("2021", "2022")))
+    result = {"spec": RETURN_GATE, "events": int(len(rows)), "assets": int(rows.symbol.nunique()),
+              "net_mean": net, "gross_directional_mean": gross,
+              "hit_rate_net_gt0": float((rows.net > 0).mean()), "by_year": years,
+              "funding_cost_mean": float(rows.funding_cost.mean()), "cost_per_trade": float(rows.cost.iloc[0]),
+              "verdict": "PASS_RETURN_GATE_TUNE" if passed else "NO_RETURN_EDGE_TUNE"}
+    atomic_write(out, lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
+    rows.to_csv(out.with_suffix(".rows.csv"), index=False)
+    return result
+
+
 # Per-invocation performance evidence (kept separate from scientific evidence).
 _PERF_TIMINGS: dict[str, dict] = {}
 _PERF_CONTEXT: dict = {}
@@ -3791,6 +3857,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--regime3-universe", choices=["core5", "holdout"], default="core5", help="holdout = pre-registered unseen assets (DEV window)")
     parser.add_argument("--artifacts-dir", default="artifacts/regime", help="Per-run audit artifacts root ('' disables)")
     parser.add_argument("--regime3-reference", default=None, help="Evidence JSON whose metrics must be reproduced (parity)")
+    parser.add_argument("--return-gate", action="store_true", help="Pre-registered tune-years (2021-2022) directional return gate for confirmed onsets")
     parser.add_argument("--regime3-models", default="no_event,prior,structural,mc,logistic,xgb")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
@@ -3841,6 +3908,17 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--trials must be >= 1")
     if args.self_test:
         self_test()
+        return
+    if args.return_gate:
+        if args.unlock_oos or args.regime3 or args.research or args.multi_research or args.regime_research:
+            parser.error("--return-gate is a standalone tune-years study")
+        file = Path("core5_4h.csv")
+        if not file.exists():
+            download_core5_dev(file)
+        raw = pd.read_csv(file, float_precision="round_trip")
+        assets, _ = validate_core5(raw, file)
+        result = regime_return_gate(assets, Path("artifacts/return_gate/tune.json"))
+        print(json.dumps({k: result[k] for k in ("events", "assets", "net_mean", "gross_directional_mean", "hit_rate_net_gt0", "by_year", "verdict")}, indent=2, default=str))
         return
     if args.regime3:
         if args.unlock_oos or args.research or args.multi_research or args.regime_research:
