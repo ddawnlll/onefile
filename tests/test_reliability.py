@@ -10,6 +10,8 @@ import pandas as pd
 import test_one as fixtures
 from test_one import TemporaryFiles, market_frame
 
+import data
+import market
 import one
 
 
@@ -22,7 +24,7 @@ class SourceVerificationTests(unittest.TestCase):
                                     "funding_rate": observed.funding_rate.to_numpy()})
 
     def verify(self, frame=None):
-        with patch.object(one, "fetch_funding_month", return_value=self.source):
+        with patch.object(data, "fetch_funding_month", return_value=self.source):
             return one.verify_funding_source(self.frame if frame is None else frame, "2020-02-01")
 
     def test_signed_and_real_zero_rates_match_source(self):
@@ -43,7 +45,7 @@ class SourceVerificationTests(unittest.TestCase):
     def test_missing_and_duplicate_source_settlements_fail(self):
         for source in [self.source.iloc[1:], pd.concat([self.source, self.source.iloc[:1]])]:
             with (self.subTest(n=len(source)),
-                  patch.object(one, "fetch_funding_month", return_value=source),
+                  patch.object(data, "fetch_funding_month", return_value=source),
                   self.assertRaisesRegex(ValueError, "canonical funding history")):
                 one.verify_funding_source(self.frame, "2020-02-01")
 
@@ -57,7 +59,7 @@ class SourceCLIContractTests(TemporaryFiles):
     def test_online_source_outage_stops_before_features_execution_or_exports(self):
         market_frame().to_csv(self.csv, index=False)
         with (patch.object(one, "verify_funding_source", side_effect=OSError("source unavailable")),
-              patch.object(one, "features") as features,
+              patch.object(data, "features") as features,
               patch.object(one, "evaluate_events") as execution):
             code, stdout, stderr = self.run_cli(offline=False)
         self.assertEqual(code, 2)
@@ -71,7 +73,7 @@ class SourceCLIContractTests(TemporaryFiles):
     def test_online_mismatch_stops_before_features(self):
         market_frame().to_csv(self.csv, index=False)
         with (patch.object(one, "verify_funding_source", side_effect=ValueError("CSV funding values differ")),
-              patch.object(one, "features") as features):
+              patch.object(data, "features") as features):
             code, stdout, _ = self.run_cli(offline=False)
         self.assertEqual(code, 2)
         features.assert_not_called()
@@ -99,7 +101,7 @@ class SourceCLIContractTests(TemporaryFiles):
             result.loc[[30, 80, 130], "signal"] = True
             return result
 
-        with patch.object(one, "features", side_effect=enriched):
+        with patch.object(data, "features", side_effect=enriched):
             code, _, stderr = self.run_cli()
         self.assertEqual(code, 0, stderr)
         rows = pd.read_csv(self.out)

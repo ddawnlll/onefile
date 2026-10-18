@@ -5,6 +5,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
+import data
+import market
 import one
 from test_one import market_frame
 
@@ -118,6 +120,92 @@ class EventMatchingTests(unittest.TestCase):
         with patch.object(one, "download") as download, self.assertRaises(SystemExit):
             one.main(["--regime-research", "--unlock-oos", "--download"])
         download.assert_not_called()
+
+
+class RegimeV3Tests(unittest.TestCase):
+    def test_v3_features_are_prefix_causal(self):
+        x = market_frame("2020-01-01", "2021-01-01", varying=True)
+        before = one.regime3_features(one.daily_market(x))
+        changed = x.copy()
+        changed.loc[900:, ["open", "high", "low", "close", "volume", "funding_rate"]] *= 4
+        after = one.regime3_features(one.daily_market(changed))
+        assert_frame_equal(before.loc[:149, one.REGIME3_BASE], after.loc[:149, one.REGIME3_BASE])
+
+    def test_fast_matcher_reproduces_v2_archive(self):
+        rng = np.random.default_rng(3)
+        q = np.zeros(200); q[30:40] = 1; q[60:66] = -1; q[100:110] = 1; q[112:120] = -1
+        rows = daily(q); rows["symbol"] = "BTCUSDT"
+        _, e = one.regime_labels(rows)
+        e["symbol"] = "BTCUSDT"
+        p = rng.dirichlet([4, 1, 1], len(rows))
+        for t in (.1, .2, .3):
+            old, _ = one.regime_alarm_archive(rows, p, t, e)
+            new, _ = one.regime3_alarms(rows, p, t, e)
+            self.assertEqual([(a["time"][:10], a["side"], a["event_id"]) for a in old],
+                             [(a["time"][:10], a["side"], a["event_id"]) for a in new])
+
+    def test_tune_scope_never_scores_untouched_years(self):
+        n = 1400; rng = np.random.default_rng(5)
+        d = pd.DataFrame(rng.normal(size=(n, len(one.REGIME3_BASE))), columns=one.REGIME3_BASE)
+        d["time"] = pd.date_range("2020-01-01", periods=n, tz="UTC")
+        d["symbol"], d["q"] = "BTCUSDT", 0.
+        d["y"] = np.where(np.arange(n) % 23 < 2, 1, 0).astype(float)
+        d["target_onset"] = d.time.where(d.y.ne(0))+pd.Timedelta(days=2)
+        d["event_key"] = np.where(d.y.ne(0), "BTCUSDT|"+d.target_onset.astype(str), "")
+        d["maturity_time"] = d.time+pd.Timedelta(days=12)
+        e = pd.DataFrame({"onset_i": [], "onset_time": pd.Series([], dtype="datetime64[ns, UTC]"), "side": [],
+                          "status": [], "symbol": []})
+        f, folds = one.regime3_walk_forward(d, e, ("prior",), "tune")
+        self.assertLess(f.time.max(), pd.Timestamp(one.REGIME3_TUNE_END, tz="UTC"))
+        self.assertEqual(len(folds), 4)
+
+    def test_v3_cli_rejects_sealed(self):
+        with self.assertRaises(SystemExit):
+            one.main(["--regime3", "--unlock-oos"])
+
+
+class RegimeAuditTests(unittest.TestCase):
+    def test_natural_duration_and_false_alarm_reasons(self):
+        q = np.zeros(60); q[10:13] = 1; q[30:31] = 1; q[40:52] = -1
+        d = daily(q); d["symbol"] = "BTCUSDT"
+        _, e = one.regime_labels(d)
+        e["symbol"] = "BTCUSDT"
+        table = one.regime_event_table(d, e).set_index("event_id")
+        self.assertEqual(table.loc[10, "duration_days"], 3)
+        self.assertEqual(table.loc[40, "duration_days"], 12)
+        alarm = lambda day, side: {"time": str(d.time.iloc[day]), "symbol": "BTCUSDT", "side": side}
+        self.assertEqual(one._alarm_reason(alarm(27, 1), e), "onset_failed_confirmation")
+        self.assertEqual(one._alarm_reason(alarm(5, -1), e), "opposite_onset")
+        self.assertEqual(one._alarm_reason(alarm(20, 1), e), "late_onset_8_14d")
+        self.assertEqual(one._alarm_reason(alarm(53, 1), e), "no_onset")
+
+    def test_holdout_requires_single_final_scope(self):
+        with self.assertRaises(SystemExit):
+            one.main(["--regime3", "--regime3-universe", "holdout", "--regime3-scope", "tune"])
+
+
+class DirectionV5Tests(unittest.TestCase):
+    def test_direction_features_are_causal_and_labels_are_forward_only(self):
+        x = market_frame("2020-01-01", "2021-06-01", varying=True)
+        empty = pd.DataFrame(columns=["vol", "taker"], index=pd.DatetimeIndex([], tz="UTC", name="day"))
+        before = one.direction_daily(x, empty)
+        changed = x.copy()
+        changed.loc[720:, ["open", "high", "low", "close", "volume", "funding_rate"]] *= 3
+        after = one.direction_daily(changed, empty)
+        cols = one.DIR_PRICE[:-1]
+        assert_frame_equal(before.loc[:118, cols], after.loc[:118, cols])
+        for h in one.DIR_HORIZONS:
+            self.assertTrue(before[f"y{h}"].tail(h).isna().all())
+
+    def test_cooldown_blocks_repeat_alarms_within_five_days(self):
+        n = 12
+        rows = pd.DataFrame({"symbol": "BTCUSDT", "day": pd.date_range("2021-01-01", periods=n, tz="UTC"),
+                             "p_down": .05, "p_neutral": .05, "p_up": .9, "y5": 1., "Z5": 1., "r_fwd5": .02,
+                             "fund_fwd5": 0., "close": 1., "funding": 0., "y3": 1., "Z3": 1., "y7": 1., "Z7": 1.,
+                             "model": "m", "h": 5, "split": "test", "block": "2021-01-01"})
+        cal = rows.copy(); cal["split"] = "cal"; cal["p_up"] = np.linspace(.1, .9, n)
+        out = one.direction_evaluate(pd.concat([cal, rows], ignore_index=True), "m", 5)
+        self.assertEqual(out["alarms"], 3)  # days 0, 5, 10 after a 5-day cooldown
 
 
 if __name__ == "__main__":

@@ -1,0 +1,51 @@
+{
+  "spec": {
+    "study": "ONEFILE-RETURN-GATE-TUNE-V1",
+    "window_onset": [
+      "2021-01-01",
+      "2023-01-01"
+    ],
+    "entry": "close of confirmation day (onset_i+5)",
+    "exit": "close of onset_i+10",
+    "direction": "side of the confirmed onset",
+    "hold_days": 5,
+    "costs": "FEE_BPS and SLIPPAGE_BPS on entry and exit; daily funding paid by the side over the 5 held days",
+    "gate": "net mean block-CI lower > 0 AND directional gross mean block-CI lower > 0 AND net mean > 0 in both 2021 and 2022",
+    "block_days": 28,
+    "draws": 2000,
+    "trials": 1,
+    "sealed_data_used": false
+  },
+  "events": 71,
+  "assets": 5,
+  "net_mean": {
+    "mean": -0.004810582132703204,
+    "ci95": [
+      -0.04156948802155753,
+      0.03511326014384536
+    ]
+  },
+  "gross_directional_mean": {
+    "mean": 0.0009032933602545471,
+    "ci95": [
+      -0.03603065460056484,
+      0.04308847811850918
+    ]
+  },
+  "hit_rate_net_gt0": 0.5070422535211268,
+  "by_year": {
+    "2021": {
+      "n": 31,
+      "net_mean": 0.04324696832535697,
+      "gross_mean": 0.052025852196324725
+    },
+    "2022": {
+      "n": 40,
+      "net_mean": -0.042055183737699835,
+      "gross_mean": -0.03871668973769984
+    }
+  },
+  "funding_cost_mean": 0.004513875492957746,
+  "cost_per_trade": 0.0012,
+  "verdict": "NO_RETURN_EDGE_TUNE"
+}

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ONEFILE — Rejim modeli mimarisi (kanıta dayalı taslak)</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; line-height: 1.55; color: #1a1a1a; }
+  h1 { font-size: 1.6rem; } h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; font-size: .92rem; }
+  th, td { border: 1px solid #bbb; padding: .4rem .5rem; vertical-align: top; text-align: left; }
+  th { background: #f2f2f2; }
+  .tag-v { color: #0a6b2d; font-weight: 600; } .tag-u { color: #9a5b00; font-weight: 600; } .tag-x { color: #a11; font-weight: 600; }
+  pre { background: #f6f6f6; padding: .7rem; overflow-x: auto; font-size: .85rem; }
+  .note { background: #fff7e6; border-left: 4px solid #e0a000; padding: .5rem .8rem; margin: 1rem 0; }
+  code { background: #f2f2f2; padding: 0 .2rem; }
+</style>
+</head>
+<body>
+
+<h1>ONEFILE — Rejim modeli mimarisi (kanıta dayalı taslak)</h1>
+<p>Bu belge bir mimari önerisidir. Hiçbir model eğitilmedi, hiçbir veri yeni bir kapıdan geçmedi. Her bileşen için kaynağı ve kanıt durumunu belirttim.</p>
+
+<p>Etiketler:
+<span class="tag-v">[DOĞRULANDI]</span> makalenin özetini veya metnini okudum ve iddiayı kontrol ettim.
+<span class="tag-u">[KISMİ]</span> yalnızca arama özeti gördüm ya da özet iddiayı desteklemiyor.
+<span class="tag-x">[VARSAYIM]</span> kaynağı yok; test edilmesi gereken bir hipotez.</p>
+
+<h2>1. Önceki iddialarda düzeltmeler</h2>
+<div class="note">
+Önceki mesajlarımda bazı kaynak iddialarını, makaleleri açmadan ve yalnızca arama özetlerine dayanarak aktardım. Bunların bir kısmı yanlıştı:
+<ul>
+  <li><b>arXiv 2510.14435 (kripto varlık sınıfı):</b> Özette carry trade tanımı, örneklem dönemi veya Sharpe rakamları yok. Önceki arama özetindeki "Sharpe 6,45 / 4,06 / 2025'te negatif" iddiası <span class="tag-x">doğrulanamadı</span>. Kullanmayın.</li>
+  <li><b>Nefedov (SSRN): "naif Sharpe 3,6 kat şişiyor":</b> Makaleyi açmadım, yalnızca arama özetini gördüm. <span class="tag-u">KISMİ</span>. Mesajda "özetini gördüm" demiştim; doğru ifade "arama özeti" olmalıydı.</li>
+  <li><b>Springer 2024 (rejim değiştirme, kripto):</b> Yalnızca arama özeti. "Out-of-sample'da iyileşme görülmedi" iddiası <span class="tag-u">KISMİ</span>.</li>
+  <li><b>Krauss, Do &amp; Huck (ensemble):</b> Ensemble'ın net kazancını doğrulayamadım. <span class="tag-u">KISMİ</span>. Bu makaleyi tasarım dayanağı olarak kullanmıyorum.</li>
+  <li><b>Conformal (arXiv 2107.07511) bölüm numaraları:</b> İçindekiler tablosundan geldi. Bölüm 4.6 ve 5.5 içeriği okunamadı.</li>
+</ul>
+</div>
+
+<h2>2. Problem tanımı (değiştirilmeden)</h2>
+<p>Hedef, gerçekleşmiş bir rejim başlangıcını 1–7 gün önceden, teyit edilebilir ve nedensel bir kuralla öngörmektir. Mevcut etiket tanımı (q geçişi, 3/5 teyit, 7 gün ufuk) bu projede önceden sabitlendi. Bu belgede etiket tanımını değiştirmek için bir öneri yok. Değişiklik gerekirse ayrı bir ön kayıt olarak yazılmalı.</p>
+
+<h2>3. Kanıtlanmış durum (projemizden)</h2>
+<table>
+<tr><th>Bulgu</th><th>Kaynak (bu depo)</th><th>Durum</th></tr>
+<tr><td>Yalnızca yapısal (pencere aritmetiği) baz model, 2021–2024 core-5'te %79,2 precision, %26,6 recall. Holdout'ta (12 yeni varlık) %76,5, %19,7.</td><td>REGIME3_REPORT.md, REGIME4_REPORT.md</td><td><span class="tag-v">[DOĞRULANDI]</span></td></tr>
+<tr><td>Alarmların tamamı mekanik (need ≤ 0). Hatalar çoğunlukla teyit başarısızlığı.</td><td>artifacts/regime/…/alarms.csv</td><td><span class="tag-v">[DOĞRULANDI]</span></td></tr>
+<tr><td>Feature grupları (funding, momentum, volatilite, hacim, çapraz varlık, taker akışı) MC'nin üstüne bilgi eklemedi.</td><td>Worker B, null testleri (blok permütasyonu)</td><td><span class="tag-v">[DOĞRULANDI]</span> (tek seferde, sınırlı)</td></tr>
+<tr><td>Yön için getiri kenarı yok: net −%0,48/işlem, brüt yönlü +%0,09, CI sıfırı içeriyor.</td><td>artifacts/return_gate/tune.json</td><td><span class="tag-v">[DOĞRULANDI]</span> (tune yılları, 71 olay)</td></tr>
+</table>
+
+<h2>4. Literatürden destekleyici bulgular</h2>
+<table>
+<tr><th>Konu</th><th>Kaynak</th><th>Ne diyor (özetten)</th><th>Durum</th></tr>
+<tr><td>Persistansı cezalandırılmış rejim tahmini (statistical jump model)</td><td><a href="https://arxiv.org/abs/2402.05272">arXiv:2402.05272</a></td><td>Her durum geçişine ceza ekliyor; ceza zaman serisi çapraz doğrulamasıyla seçiliyor; ABD/Almanya/Japonya endeksleri 1990–2023; işlem maliyeti ve gecikmeyle out-of-sample; HMM'ye göre tutarlı üstünlük. Özette sayısal değer yok.</td><td><span class="tag-v">[DOĞRULANDI]</span> (özet), hisse endeksi, kripto değil</td></tr>
+<tr><td>Kripto'da HMM tabanlı rejim modeli</td><td><a href="https://arxiv.org/abs/2011.03741">arXiv:2011.03741</a></td><td>Bitcoin, Ether, Ripple için dört durumlu bir HMM varyantı, tek rejimli rastgele yürüyüşe göre bir adım ilerisi tahminde en iyi predictive density. Özette sayısal skor yok; out-of-sample olduğu açık değil.</td><td><span class="tag-v">[DOĞRULANDI]</span> (özet)</td></tr>
+<tr><td>Rejimi önceden tahmin etme (emtia, FX, hisse)</td><td><a href="https://arxiv.org/abs/2310.04536">arXiv:2310.04536</a></td><td>HMM'ye karşı ex-ante rejim tahmini; yalnızca emtiada test sonrası maliyetli kümülatif getirinin endeks getirisinin 4 katından fazla olduğu bildiriliyor. Kontrarian kısa pozisyonlar kullanılıyor.</td><td><span class="tag-v">[DOĞRULANDI]</span> (özet); emtia sonucu tek kanıt</td></tr>
+<tr><td>Hibrit (PCA + kümeleme + sınıflandırma) rejim tespiti</td><td><a href="https://arxiv.org/abs/2108.05801">arXiv:2108.05801</a></td><td>Kümeleme + sınıflandırma kombinasyonu; ABD ekonomik verisi; özette sayısal sonuç yok.</td><td><span class="tag-v">[DOĞRULANDI]</span> (özet), sonuç yok</td></tr>
+<tr><td>Rejim süresi için hazard/süre modeli</td><td><a href="https://arxiv.org/abs/1610.00259">arXiv:1610.00259</a></td><td>Negatif getiri dönemlerinin süresi için sürekli zaman sağkalım modeli; ABD verisi 1871–2016; log-normal en iyi uyum.</td><td><span class="tag-u">[KISMİ]</span> yalnızca arama özeti, makale açılmadı</td></tr>
+<tr><td>Dağıtımdan bağımsız kapsama garantileri (conformal)</td><td><a href="https://arxiv.org/abs/2107.07511">arXiv:2107.07511</a></td><td>Ana garantiler i.i.d. örnekleme varsayar. Kovaryat kaymasında ağırlıklı conformal önerilir. Zaman serisi bağımlılığı için garanti özette yok; bölüm 4.6 ve 5.5 okunamadı.</td><td><span class="tag-v">[DOĞRULANDI]</span> i.i.d. varsayımı; zaman serisi için <span class="tag-u">[KISMİ]</span></td></tr>
+</table>
+
+<h2>5. Önerilen mimari (katmanlı, her katman bir kapıdan geçer)</h2>
+<pre>
+  Veri (4h → günlük, yalnızca geçmiş bilgi)
+        │
+  [K0] Baz: yapısal MC  ──────────────►  kıyas ve null (değişmez)
+        │
+  [K1] Rejim durumu  (isteğe bağlı)  ─►  jump-penalized durum tahmincisi
+        │                                  veya q tanımı (ayrı ön kayıt)
+  [K2] Süre / hazard (isteğe bağlı) ──►  başlangıca kadar süre ve rejim ömrü
+        │
+  [K3] Yön ve karar   (isteğe bağlı) ──►  meta-etiket filtresi + boyutlandırma
+        │
+  [K4] Eşik ve belirsizlik  ──────────►  ampirik blok CI (conformal değil)
+        │
+  [K5] Değerlendirme  ─────────────────►  ön kayıt, tune/holdout, deneme sayımı
+</pre>
+
+<h3>K0 — Baz model (değişmez)</h3>
+<p>Mevcut MC modeli. Parametre öğrenmiyor, yalnızca bilinen pencereyi ve rv20'yi kullanıyor. Her yeni model bu baza göre ölçülür. <span class="tag-v">[DOĞRULANDI]</span></p>
+
+<h3>K1 — Rejim durumu (aday)</h3>
+<p>Mevcut 3/5 teyit kuralı yerine persistansı cezalandırılmış bir durum tahmincisi kullanılabilir. Dayanak: arXiv:2402.05272. <span class="tag-u">[KISMİ]</span> Hisse endeksleriyle test edildi, kripto ve bizim etiketimizle test edilmedi. Önemli not: bu, etiketi değiştirmek demektir. Bu nedenle ayrı bir ön kayıt gerektirir ve mevcut sonucu "iyileştirmek" için kullanılamaz.</p>
+
+<h3>K2 — Süre ve hazard (aday)</h3>
+<p>Başlangıca kadar geçen süreyi ve rejim ömrünü hazard modeliyle tahmin etmek. Dayanak: arXiv:1610.00259 <span class="tag-u">[KISMİ]</span>. Projemizde bulgu: uzun rejimler daha iyi yakalanıyor (recall .38–.44 ve .15–.18 kısalarda), ama süre başlangıçtan sonra belli olduğu için bu bir ex-ante süre tahmini değil. Hazard modeli bu kısıtı açıkça modellemeli.</p>
+
+<h3>K3 — Yön ve meta-etiket (aday)</h3>
+<p>Birincil sinyal (MC veya K1) aday işlemleri üretir; ikinci bir model işlemin başarılı olup olmayacağına ve boyutuna karar verir. Bu kalıp (meta-labeling) López de Prado'nun AFML kitabında anlatılır; bu kaynağı doğrudan okumadım, ikincil açıklamalardan biliyorum. <span class="tag-u">[KISMİ]</span></p>
+<div class="note">Önemli: meta-labeling yalnızca birincil sinyalde zaten bir yön kenarı varsa değer katar. Bizim return kapımız (tune, 71 olay) bu kenarı göstermedi. Bu yüzden K3 şu an ölçülebilir bir fayda öngörmüyor ve yalnızca K1/K2 veya yeni bir yön hipotezi kanıtlandığında devreye girmeli.</div>
+
+<h3>K4 — Eşik ve belirsizlik</h3>
+<p>Conformal kapsama ve seçmeli precision garantileri i.i.d. varsayımına dayanıyor. Kaymaya dayanıklı varyantlar kovaryat kayması için tanımlanmış, ama zaman serisi bağımlılığında elimizdeki okumada bir garanti bulunamadı. <span class="tag-v">[DOĞRULANDI]</span> (varsayım) <span class="tag-u">[KISMİ]</span> (zaman serisi).</p>
+<p>Bu nedenle precision iddiaları yalnızca ampirik blok bootstrap ile (28 günlük takvim blokları, varlıklar birlikte) ve deneme sayımıyla raporlanmalı. Conformal'a dayalı bir "%80 garantisi" yazılmamalı.</p>
+
+<h3>K5 — Değerlendirme</h3>
+<ul>
+  <li>Her hipotez, skorlamadan önce commit ile sabitlenir. Dokunulmamış test yalnızca bir kez kullanılır.</li>
+  <li>Tüm denemeler kayıt altında tutulur. Deflated Sharpe ve PBO gibi seçim yanlılığı düzeltmeleri gerekir. Bu yöntemlerin temel makalesi (Bailey &amp; López de Prado) <span class="tag-u">[KISMİ]</span> arama özetinde görüldü, açılmadı.</li>
+  <li>Kripto'da maliyetler (komisyon, slippage, funding) gerçek getiriyi değiştirebilir; hem brüt hem net raporlanır.</li>
+</ul>
+
+<h2>6. Önerilen sıra (kapılarla)</h2>
+<table>
+<tr><th>Adım</th><th>Ne test edilir</th><th>Geçerse ne olur</th></tr>
+<tr><td>A</td><td>K1: persistansı cezalandırılmış durum tahmincisi; tune yılları, mevcut etiketle</td><td>Ön kayıtlı yeni hipotez olarak devam</td></tr>
+<tr><td>B</td><td>K2: hazard modeli ile başlangıca kalan süre; baz MC ile kıyas</td><td>Ex-ante süre bilgisi katkı verirse K3 düşünülür</td></tr>
+<tr><td>C</td><td>K3: meta-filtre; yalnızca A veya B bir kenar gösterirse</td><td>Filtre fayda sağlarsa return kapısına bağlanır</td></tr>
+<tr><td>D</td><td>Hiçbiri geçmezse</td><td>NO_EDGE raporu güncellenir, sistem terk edilir</td></tr>
+</table>
+
+<h2>7. Açık riskler</h2>
+<ul>
+  <li><b>Veri tekrarı:</b> Holdout'taki 12 varlık artık harcandı. Yeni bağımsız test için 2025+ sealed veri gerekir ve açılması için açık izin gerekir.</li>
+  <li><b>Yön kenarı yok:</b> Mevcut kanıt, bu yapıların hiçbirinin yön kenarı yaratamayacağını gösteriyor. Mimari bunu değiştirmez, yalnızca bunu test etmenin doğru sırasını belirler.</li>
+  <li><b>Literatürün kripto'daki kapsamı sınırlı:</b> Funding, open interest ve getiri tahmini için doğrulanmış bir çalışma bulamadım.</li>
+</ul>
+
+<h2>8. Ne yapmıyoruz</h2>
+<ul>
+  <li>Etiket tanımını sonuçlara göre değiştirmiyoruz.</li>
+  <li>Önceki 2023–2024 sonuçlarını yeniden bağımsız test gibi sunmuyoruz.</li>
+  <li>Bu belgedeki hiçbir kaynağı, makaleyi açmadan doğrulanmış gibi göstermiyoruz.</li>
+</ul>
+
+</body>
+</html>

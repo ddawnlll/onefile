@@ -19,6 +19,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
+import data
+import market
 import one
 
 
@@ -253,7 +255,7 @@ class DownloadTests(TemporaryFiles):
             self.assertTrue(request.full_url.startswith(one.DATA_SOURCE + "/"))
             return io.BytesIO(f_zip if "/fundingRate/" in request.full_url else k_zip)
 
-        with patch.object(one.urllib.request, "urlopen", side_effect=response):
+        with patch.object(data.urllib.request, "urlopen", side_effect=response):
             one.download(self.csv, end_date="2020-02-01")
 
     def assert_rejected_without_replacement(self, regex):
@@ -321,7 +323,7 @@ class DownloadTests(TemporaryFiles):
         self.assert_rejected_without_replacement("timestamp drift")
 
     def test_unsupported_symbol_rejected_before_network(self):
-        with patch.object(one.urllib.request, "urlopen") as network:
+        with patch.object(data.urllib.request, "urlopen") as network:
             with self.assertRaisesRegex(ValueError, "Only BTCUSDT"):
                 one.download(self.csv, symbol="ETHUSDT")
             network.assert_not_called()

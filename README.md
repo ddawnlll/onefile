@@ -6,6 +6,13 @@ Single-file **Hypothesis → Experiment → Decision** research workflow with fa
 
 ---
 
+## Kod düzeni
+
+- `core.py`: ortak sabitler, atomik yazım, blok istatistikleri, performans zamanlayıcıları.
+- `data.py`: Binance DEV verisi — indirme, önbellek doğrulama, validasyon, funding kaynağı, özellik hazırlığı.
+- `market.py`: piyasa modeli — H1-A, rejim v2–v4, return gate, direction v5, audit.
+- `one.py`: vectorbt yürütme motoru, olay çalışmaları, CLI ve performans denetimi. Eski isimler (`one.regime3_run` gibi) geriye dönük olarak `one` üzerinden erişilebilir kalır.
+
 ## The 8-Stage Research Roadmap
 
 | # | Stage | Output | Status |
@@ -50,6 +57,36 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 
 ---
 
+
+## Regime v4: evidence audit and unseen-asset holdout (DEV only)
+
+```bash
+uv run --no-sync python one.py --regime3 --regime3-scope final                              # core-5 + audit artifacts
+uv run --no-sync python one.py --regime3 --regime3-universe holdout --regime3-scope final   # pre-registered 12 unseen assets
+```
+
+Every run writes `artifacts/regime/<run_id>/`: a manifest (git, data SHA, configs, splits, thresholds,
+timings), predictions, features at forecast time, alarm and event records with FP and miss reasons,
+lead time, natural regime duration, fold metrics, calibration and a comparison report. A parity check
+re-derives every metric from disk. The verdict is still **NO_EDGE_80**: on 12 never-examined assets
+the unchanged `mc`/`fixed70` system scores 78/102 = 76.5% precision with 19.7% recall. Every alarm is
+mechanical (window drop-off arithmetic), and no feature group beats the Monte Carlo baseline. See
+[REGIME4_REPORT.md](REGIME4_REPORT.md).
+
+## Pooled core-5 regime forecasting v3 (DEV only)
+
+```bash
+uv run --no-sync python one.py --regime3 --regime3-scope tune   # 2021-2022 only, for model choices
+uv run --no-sync python one.py --regime3 --regime3-scope final  # 2021-2024, run once after pre-registration
+```
+
+Same expanded onset labels as above, pooled over BTC/ETH/SOL/XRP/BNB (143 scoreable
+events in 2021–2024 versus 33 for BTC). Every model shares the data, purged folds,
+history-only thresholds, and per-asset alarm cooldown. The `mc` baseline simulates
+the exact label on the already-observed 20-day window plus Student-t returns. The
+result is **NO_EDGE_80**: the pre-registered `mc`/`fixed70` system reaches 79.2%
+precision (38/48), but only 73.9% on untouched 2023–2024, so the gate fails. See
+[REGIME3_REPORT.md](REGIME3_REPORT.md).
 
 ## Four-year XGBoost regime forecasting (DEV only)
 
