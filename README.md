@@ -50,6 +50,52 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 
 ---
 
+
+## E2E performance audit
+
+Every CLI invocation (including failed studies and \`--self-test\`) writes an atomic
+\`perf/<utc>-<pid>-<nonce>.json\` report with elapsed wall/CPU time, input SHA,
+study mode, stage timers, vectorbt kernel vs adapter timings, and an AST
+inventory of every Python \`for\`/\`while\`/comprehension in \`one.py\`.
+Scientific evidence and sealed OOS remain separate.
+
+For a sampled call tree and interactive HTML flamegraph, optionally install
+[Pyinstrument](https://github.com/joerick/pyinstrument) **in the active environment**:
+
+\`\`\`bash
+uv pip install --python .venv/bin/python pyinstrument
+uv run --no-sync python one.py --csv core5_4h.csv --offline --multi-research --protocol core5_perf_attempt01.json
+\`\`\`
+
+Reports are in \`perf/\`. Without Pyinstrument, E2E/timers/loop inventory
+still save automatically; \`sampling\` records why flamegraph output is absent.
+No new dependency is required for normal execution and \`uv sync --frozen\`
+still works. \`uv sync\` may remove ad-hoc profiler packages; reinstall as needed.
+
+For **exact Python line hit counts** (much slower, not for performance comparisons),
+use [line_profiler](https://github.com/pyutils/line_profiler):
+
+\`\`\`bash
+uv pip install --python .venv/bin/python line-profiler
+uv run --no-sync python one.py --csv core5_4h.csv --offline --multi-research --protocol core5_perf_attempt02.json --profile-loops
+\`\`\`
+
+The \`.lprof\` file and per-loop line-hit estimates accompany the JSON audit.
+Python source loops that were never entered show zero hits only in deep mode.
+JIT-compiled Numba loop iterations cannot be counted by Python line tracing.
+Loop-body line times are approximate and nested loops overlap.
+
+Compare two runs **with the same input, study mode and profiler mode**:
+
+\`\`\`bash
+uv run --no-sync python one.py --offline --csv btc_4h.csv --perf-baseline perf/OLD.json
+\`\`\`
+
+The next JSON contains measured \`wall_reduction_percent\` and \`speedup_x\`.
+For cold/warm JIT comparisons, run at least two identical invocations; clearly
+distinguish process startup/JIT from actual simulation. Use \`--no-perf\` for
+unprofiled timing controls. Never treat these timing reports as trading evidence.
+
 ## Quickstart
 
 ```bash
