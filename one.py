@@ -3233,7 +3233,7 @@ def regime3_report(forecasts: pd.DataFrame, events: pd.DataFrame) -> dict:
 
 def regime3_gate(model: dict, policy: str) -> dict:
     """Pre-registered before any 2023-2024 scoring; all conditions must hold."""
-    pooled, untouched = model[policy], model.get("untouched_2023_2024", {}).get(policy, {})
+    pooled, untouched = model[policy], model.get("untouched", {}).get(policy, {})
     years = [v for v in model["by_year"][policy].values() if v.get("alarms", 0) >= 5]
     checks = {"precision>=.80": (pooled.get("precision") or 0) >= .8,
               "wilson_lower>=.70": (pooled["precision_wilson95"][0] or 0) >= .7,
@@ -3255,10 +3255,13 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
     forecasts, folds = regime3_walk_forward(d, events, kinds, args.regime3_scope, args.xgb_threads)
     report = regime3_report(forecasts, events)
     if args.regime3_scope == "final":
-        late = forecasts.time >= pd.Timestamp(REGIME3_TUNE_END, tz="UTC")
+        # Holdout assets were never examined: their whole window is untouched.
+        untouched_start = "2021-01-01" if getattr(args, "regime3_universe", "core5") == "holdout" else REGIME3_TUNE_END
+        late = forecasts.time >= pd.Timestamp(untouched_start, tz="UTC")
         for kind, model in report.items():
             g = forecasts.loc[late & forecasts.model.eq(kind)]
-            model["untouched_2023_2024"] = {p: {k: v for k, v in regime3_metrics(g, events, p).items() if k != "alarm_archive"}
+            model["untouched_start"] = untouched_start
+            model["untouched"] = {p: {k: v for k, v in regime3_metrics(g, events, p).items() if k != "alarm_archive"}
                                             for p in REGIME3_POLICIES}
             model["gate"] = {p: regime3_gate(model, p) for p in REGIME3_POLICIES}
         kind, policy = REGIME3_PRIMARY
@@ -3423,6 +3426,18 @@ def _distribution(values) -> dict:
             "p90": float(v.quantile(.9)), "counts": {str(int(k)): int(c) for k, c in v.value_counts().sort_index().items()}}
 
 
+def _mechanics(a: pd.DataFrame) -> dict:
+    """Mechanical alarm: the crossing happens even if every future return is zero (need<=0)."""
+    if a.empty or "need_up" not in a:
+        return {}
+    need = np.where(a.side.eq(1), a.need_up, a.need_down)
+    out = {}
+    for name, m in (("mechanical_need_le0", need <= 0), ("requires_move_need_gt0", need > 0)):
+        n, hits = int(m.sum()), int((a.outcome.eq("TP") & m).sum())
+        out[name] = {"alarms": n, "hits": hits, "precision": hits/n if n else None}
+    return out
+
+
 def regime_audit(d: pd.DataFrame, events: pd.DataFrame, forecasts: pd.DataFrame, folds: list[dict], report: dict,
                  meta: dict, root: Path, reference: Path | None = None) -> Path:
     """Write artifacts/regime/<run_id>/ and prove parity with the in-memory report."""
@@ -3474,6 +3489,8 @@ def regime_audit(d: pd.DataFrame, events: pd.DataFrame, forecasts: pd.DataFrame,
                 "coverage": r.get("alarms", 0)/max(r.get("N", 1), 1),
                 "lead_days": _distribution(a.loc[a.outcome.eq("TP"), "lead_days"]) if len(a) else {"n": 0},
                 "hits_lead_ge2": int((a.outcome.eq("TP") & a.lead_days.ge(2)).sum()) if len(a) else 0,
+                "early_recall_lead_ge2": float((a.outcome.eq("TP") & a.lead_days.ge(2)).sum()/max(r.get("scoreable_events", 0), 1)) if len(a) else 0.,
+                "by_mechanics": _mechanics(a),
                 "fp_reasons": a.loc[a.outcome.eq("FP"), "fp_reason"].value_counts().to_dict() if len(a) else {},
                 "miss_reasons": e.loc[~e.caught, "miss_reason"].value_counts().to_dict() if len(e) else {},
                 "duration_caught": _distribution(e.loc[e.caught, "duration_days"]) if len(e) else {"n": 0},
