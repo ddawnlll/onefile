@@ -2543,14 +2543,18 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
                 ],
             }
             if opts.perf_baseline:
-                old = json.loads(Path(opts.perf_baseline).read_text(encoding="utf-8"))
-                if (old.get("workload") or {}).get("input_sha256") != _PERF_CONTEXT.get("input_sha256") or (old.get("workload") or {}).get("study_mode") != _PERF_CONTEXT.get("study_mode"):
-                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA or study mode mismatch"}
-                elif old.get("loop_profile_mode") != loop_mode or old.get("sampling") != report["sampling"]:
+                try:
+                    old = json.loads(Path(opts.perf_baseline).read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    old = {}
+                    report["comparison"] = {"status": "UNAVAILABLE_BASELINE", "reason": str(exc)}
+                if old and any((old.get("workload") or {}).get(key) != _PERF_CONTEXT.get(key) for key in ("input_sha256", "study_mode", "unlock_oos", "offline", "download", "behavior", "target_r", "trials")):
+                    report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Input SHA or study options mismatch"}
+                elif old and (old.get("loop_profile_mode") != loop_mode or old.get("sampling") != report["sampling"]):
                     report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "Different profiling modes"}
-                elif old.get("wall_seconds", 0) <= 0:
+                elif old and old.get("wall_seconds", 0) <= 0:
                     report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "No valid baseline timing"}
-                else:
+                elif old:
                     baseline = old["wall_seconds"]
                     old_timings = old.get("timings") or {}
                     stage_changes = {}
@@ -2649,7 +2653,7 @@ def main(argv: list[str] | None = None) -> None:
             raise ValueError(f"No data at {file}. Run: python one.py --download")
         file_bytes = file.read_bytes()
         file_hash = hashlib.sha256(file_bytes).hexdigest()
-        _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos})
+        _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos, "offline": args.offline, "download": args.download, "behavior": args.behavior, "target_r": args.target_r, "trials": args.trials})
         raw = pd.read_csv(io.BytesIO(file_bytes), float_precision="round_trip")
         if args.multi_research:
             assets, readiness = validate_core5(raw, file, file_hash=file_hash)
