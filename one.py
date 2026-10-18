@@ -2812,6 +2812,640 @@ def regime_research_run(x: pd.DataFrame, readiness: dict, args) -> None:
                       "expanded_xgb": summaries["expanded"]["models"]["xgb"], "timings": result["timings"]}, indent=2))
 
 
+# Direction/continuation forecast (ONEFILE market-mechanisms report, 2026-10-18).
+# Historical DEV only. Price features are the causal baseline; spot/perp taker
+# flow and open interest/funding are ablation groups scored on identical rows.
+# Forecast and trading verdicts are separate; sealed data is never read.
+FLOW_STUDY = "ONEFILE-DIRECTION-FLOW-DEV-V1"
+FLOW_SPOT_SOURCE = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/spot/monthly"
+FLOW_METRICS_SOURCE = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/daily/metrics"
+FLOW_OI_START = "2020-09-01"    # first UM metrics archive day for BTCUSDT
+FLOW_FIRST_TEST = "2022-01-01"  # 2020-10..2021-12 supplies the first training/stopping/calibration segments
+FLOW_BLOCK_DAYS = 90
+FLOW_HORIZONS = (3, 5, 7)
+FLOW_PRIMARY = 5
+FLOW_Z = .75
+FLOW_COVERAGES = (.05, .10, .20, .40)
+FLOW_OPERATING = .20
+FLOW_COOLDOWN = pd.Timedelta(days=5)
+FLOW_BLOCK_PRIMARY = 21
+FLOW_BLOCK_SENSITIVITY = (14, 35)
+FLOW_DRAWS = 2000
+FLOW_ENTRY_BARS = 1          # first executable 4h open is one bar after the decision close
+FLOW_ENTRY_BARS_DELAYED = 7  # sensitivity: about one extra day
+FLOW_LOGIT_C = (.01, .1, 1.)
+FLOW_XGB_DEPTHS = (2, 3)
+FLOW_M3_EDGES = (-1., -.25, .25, 1.)
+FLOW_NS_PER_DAY = 86_400_000_000_000
+FLOW_PRICE = ["m1", "m3", "m7", "m21", "accel3", "efficiency7", "breakout_position_21",
+              "compression_3_21", "log_risk_21", "relative_volume_3", "close_location_1",
+              "causal_age", "m3_abs", "m3_age"]
+FLOW_SPOT = ["spot_imb3", "perp_imb3", "spot_perp_volume"]
+FLOW_DERIV = ["funding_z21", "funding_change3", "oi_change3"]
+FLOW_ALL = FLOW_PRICE + FLOW_SPOT + FLOW_DERIV
+FLOW_MODELS = {"prior": None, "persistence": None, "momentum": None, "logit_m3": ["m3"],
+               "logit_price": FLOW_PRICE, "xgb_price": FLOW_PRICE,
+               "logit_price_spot": FLOW_PRICE + FLOW_SPOT, "logit_price_deriv": FLOW_PRICE + FLOW_DERIV,
+               "logit_all": FLOW_ALL, "xgb_all": FLOW_ALL}
+FLOW_BASELINES = ["prior", "persistence", "momentum", "logit_m3"]
+FLOW_PAIRS = ([("logit_price", b) for b in FLOW_BASELINES] +
+              [("xgb_price", "logit_price"), ("logit_price_spot", "logit_price"),
+               ("logit_price_deriv", "logit_price"), ("logit_all", "logit_price"), ("xgb_all", "logit_all")])
+
+
+def _flow_bars(url: str) -> pd.DataFrame:
+    """Headerless 4h kline archive; keeps quote volume and taker-buy quote volume only."""
+    payload = cached_archive(url, "onefile-flow-research/1.0")
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive, archive.open(archive.namelist()[0]) as stream:
+        bars = pd.read_csv(stream, header=None)
+    if str(bars.iloc[0, 0]).isalpha() or str(bars.iloc[0, 0]) == "open_time":
+        bars = bars.iloc[1:].reset_index(drop=True)
+    return pd.DataFrame({"time": pd.to_datetime(bars[0].astype("int64"), unit="ms", utc=True),
+                         "quote": bars[7].astype(float), "taker_quote": bars[10].astype(float)})
+
+
+def _flow_day_sums(bars: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    """Quote-unit sums per complete UTC day (six 4h bars); incomplete days stay NaN, never zero."""
+    if not bars.time.is_unique:
+        raise ValueError(f"Duplicate {prefix} kline archive records")
+    days = bars.assign(day=bars.time.dt.floor("D")).groupby("day").agg(
+        quote=("quote", "sum"), taker=("taker_quote", "sum"), bars=("quote", "size"))
+    complete = days.bars.eq(6)
+    return pd.DataFrame({f"{prefix}_quote": days.quote.where(complete),
+                         f"{prefix}_taker": days.taker.where(complete)})
+
+
+def _flow_oi_day(day: pd.Timestamp) -> tuple[pd.Timestamp, float]:
+    """Last UM metrics snapshot of the UTC day; days without a snapshot in the final hour are NaN."""
+    url = f"{FLOW_METRICS_SOURCE}/{SYMBOL}/{SYMBOL}-metrics-{day:%Y-%m-%d}.zip"
+    payload = cached_archive(url, "onefile-flow-research/1.0")
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive, archive.open(archive.namelist()[0]) as stream:
+        snaps = pd.read_csv(stream, usecols=["create_time", "sum_open_interest"])
+    stamp = pd.to_datetime(snaps.create_time, utc=True)
+    latest = stamp.idxmax()
+    value = float(snaps.loc[latest, "sum_open_interest"]) if stamp[latest] >= day + pd.Timedelta(hours=23) else np.nan
+    return day, value
+
+
+def flow_inputs(end: str = DEV_END) -> tuple[pd.DataFrame, dict]:
+    """Causal daily spot/perp taker flow and BTC-unit open interest; any missing archive fails closed."""
+    months = pd.date_range(DEV_START, end, freq="MS", inclusive="left").strftime("%Y-%m")
+    oi_days = pd.date_range(FLOW_OI_START, end, freq="D", inclusive="left", tz="UTC")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        spot = list(pool.map(lambda ym: _flow_bars(f"{FLOW_SPOT_SOURCE}/klines/{SYMBOL}/{INTERVAL}/{SYMBOL}-{INTERVAL}-{ym}.zip"), months))
+        perp = list(pool.map(lambda ym: _flow_bars(f"{DATA_SOURCE}/klines/{SYMBOL}/{INTERVAL}/{SYMBOL}-{INTERVAL}-{ym}.zip"), months))
+        oi = list(pool.map(_flow_oi_day, oi_days))
+    spot_day = _flow_day_sums(pd.concat(spot, ignore_index=True), "spot")
+    perp_day = _flow_day_sums(pd.concat(perp, ignore_index=True), "perp")
+    oi_day = pd.DataFrame(oi, columns=["day", "oi_btc"]).set_index("day")
+    flows = spot_day.join(perp_day, how="outer").join(oi_day, how="outer")
+    flows.index.name = "day"
+    manifest = {"spot_complete_days": int(spot_day.spot_quote.notna().sum()),
+                "perp_complete_days": int(perp_day.perp_quote.notna().sum()),
+                "oi_valid_days": int(oi_day.oi_btc.notna().sum()), "oi_days_requested": len(oi_days),
+                "sources": [FLOW_SPOT_SOURCE, DATA_SOURCE, FLOW_METRICS_SOURCE]}
+    return flows, manifest
+
+
+def flow_panel(x: pd.DataFrame, flows: pd.DataFrame) -> pd.DataFrame:
+    """One row per completed UTC day. Features end at that close; labels read only later closes."""
+    flow = flows.copy()
+    flow.index = pd.DatetimeIndex(flow.index).tz_convert("UTC").as_unit("ns")
+    d = daily_market(x)
+    d["day"] = d.day.dt.as_unit("ns")
+    d = d.merge(flow.reset_index(), on="day", how="left")
+    c = np.log(d.close)
+    r = d.r1
+    # Past-only EWMA daily risk, frozen at each decision and reused for every label.
+    risk = np.sqrt(r.pow(2).ewm(halflife=21, min_periods=21).mean()).clip(lower=1e-6)
+    f = pd.DataFrame({"day": d.day, "time": d.time.dt.as_unit("ns"), "close": d.close}, index=d.index)
+    for k in (1, 3, 7, 21):
+        f[f"m{k}"] = (c - c.shift(k)) / (risk * np.sqrt(k))
+    f["accel3"] = f.m3 - f.m3.shift(1)
+    f["efficiency7"] = (c - c.shift(7)).abs() / r.abs().rolling(7).sum().clip(lower=1e-12)
+    prior_high, prior_low = d.high.shift(1).rolling(21).max(), d.low.shift(1).rolling(21).min()
+    f["breakout_position_21"] = (d.close - prior_low) / (prior_high - prior_low).clip(lower=1e-12)
+    rv3 = np.sqrt(r.pow(2).rolling(3).mean()).clip(lower=1e-12)
+    rv21 = np.sqrt(r.pow(2).rolling(21).mean()).clip(lower=1e-12)
+    f["compression_3_21"] = np.log(rv3 / rv21)
+    f["log_risk_21"] = np.log(rv21)
+    f["relative_volume_3"] = np.log(d.perp_quote.rolling(3).mean() / d.perp_quote.shift(3).rolling(21).mean())
+    f["close_location_1"] = (2*d.close - d.high - d.low) / (d.high - d.low).clip(lower=1e-12)
+    states, ages, run, prev = [], [], 0, 0
+    for m in f.m3.to_numpy(float):
+        if not np.isfinite(m):
+            states.append(np.nan); ages.append(np.nan); run, prev = 0, 0
+            continue
+        state = 1 if m > FLOW_M3_EDGES[2] else -1 if m < FLOW_M3_EDGES[1] else 0
+        run = run + 1 if state != 0 and state == prev else int(state != 0)
+        prev = state
+        states.append(state); ages.append(min(run, 21))
+    f["state"] = states
+    f["causal_age"] = ages
+    f["m3_abs"] = f.m3 * f.m3.abs()
+    f["m3_age"] = f.m3 * np.log1p(f.causal_age)
+    spot_q3, perp_q3 = d.spot_quote.rolling(3).sum(), d.perp_quote.rolling(3).sum()
+    f["spot_imb3"] = 2*d.spot_taker.rolling(3).sum() / spot_q3 - 1
+    f["perp_imb3"] = 2*d.perp_taker.rolling(3).sum() / perp_q3 - 1
+    f["spot_perp_volume"] = np.log(spot_q3 / perp_q3)
+    fund3 = d.funding.rolling(3).sum()
+    f["funding_z21"] = (fund3 - fund3.rolling(21).mean()) / (fund3.rolling(21).std() + 1e-12)
+    f["funding_change3"] = fund3 - fund3.shift(3)
+    f["oi_change3"] = np.log(d.oi_btc / d.oi_btc.shift(3))
+    for h in FLOW_HORIZONS:
+        future = c.shift(-h) - c
+        z = future / (risk * np.sqrt(h))
+        label = np.where(z > FLOW_Z, 1., np.where(z < -FLOW_Z, -1., 0.))
+        f[f"z{h}"] = z
+        f[f"y{h}"] = np.where(future.notna(), label, np.nan)
+    two = c - c.shift(2)
+    f["early_dir"] = np.sign(two)
+    f["early_cohort"] = (np.sign(two) != 0) & (two.abs() / (risk*np.sqrt(2))).between(.25, 1.5) & f.causal_age.le(2)
+    f["paired"] = f[FLOW_ALL].notna().all(axis=1) & f.state.notna()
+    return f
+
+
+def flow_splits(panel: pd.DataFrame, horizon: int, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, ...]:
+    """Expanding train; 90d stopping and 90d calibration precede each 90d test block.
+
+    A label is known at time+horizon. One embargo day follows the longest horizon,
+    so every training, stopping and calibration label ends before the next segment.
+    """
+    settled = panel.time + pd.Timedelta(days=max(FLOW_HORIZONS)+1)
+    labelled = panel.paired & panel[f"y{horizon}"].notna()
+    stop_start = start - pd.Timedelta(days=2*FLOW_BLOCK_DAYS)
+    cal_start = start - pd.Timedelta(days=FLOW_BLOCK_DAYS)
+    train = panel.loc[labelled & settled.le(stop_start)]
+    stop = panel.loc[labelled & panel.time.ge(stop_start) & settled.le(cal_start)]
+    cal = panel.loc[labelled & panel.time.ge(cal_start) & settled.le(start)]
+    test = panel.loc[panel.paired & panel.time.ge(start) & panel.time.lt(end)]
+    return train, stop, cal, test
+
+
+def _flow_temperature(p: np.ndarray, y: np.ndarray) -> float:
+    """One temperature fitted on calibration rows only; never on training or test labels."""
+    from scipy.optimize import minimize_scalar
+    logp = np.log(np.clip(p, 1e-12, 1))
+
+    def loss(log_t: float) -> float:
+        q = np.exp(logp / np.exp(log_t))
+        q /= q.sum(axis=1, keepdims=True)
+        return -np.log(np.clip(q[np.arange(len(y)), y], 1e-12, 1)).mean()
+
+    result = minimize_scalar(loss, bounds=(np.log(.25), np.log(4.)), method="bounded")
+    return float(np.exp(result.x))
+
+
+def _flow_group_probs(fit_keys, fit_y, cal_keys, test_keys, ncat: int) -> tuple[np.ndarray, np.ndarray]:
+    """Smoothed training frequencies per key; one pseudo-count spread by the global class prior."""
+    prior = (np.bincount(fit_y, minlength=3) + 1) / (len(fit_y) + 3)
+    counts = np.zeros((ncat, 3))
+    np.add.at(counts, (fit_keys, fit_y), 1)
+    table = (counts + prior) / (counts.sum(axis=1, keepdims=True) + 1)
+    return table[cal_keys], table[test_keys]
+
+
+def flow_fit_predict(name: str, horizon: int, train: pd.DataFrame, stop: pd.DataFrame,
+                     cal: pd.DataFrame, test: pd.DataFrame, threads: int) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Calibration and test probabilities in [DOWN, NEUTRAL, UP] order.
+
+    Logistic C and XGBoost depth/rounds are chosen on stopping rows only; the refit
+    keeps the chosen settings on train+stopping; one temperature uses calibration rows.
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import log_loss
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from threadpoolctl import threadpool_limits
+    from xgboost import XGBClassifier
+    target = f"y{horizon}"
+    refit = pd.concat([train, stop], ignore_index=True)
+    labels = lambda rows: rows[target].to_numpy(float).astype(int) + 1
+    info = {"fit_rows": len(refit)}
+    if name in ("prior", "persistence", "momentum"):
+        if name == "prior":
+            keys, ncat = (lambda rows: np.zeros(len(rows), int)), 1
+        elif name == "persistence":
+            keys, ncat = (lambda rows: rows.state.to_numpy(int) + 1), 3
+        else:
+            keys, ncat = (lambda rows: np.digitize(rows.m3.to_numpy(float), FLOW_M3_EDGES)), len(FLOW_M3_EDGES) + 1
+        p_cal, p_test = _flow_group_probs(keys(refit), labels(refit), keys(cal), keys(test), ncat)
+    else:
+        cols = FLOW_MODELS[name]
+        if len(np.unique(labels(train))) < 3 or len(np.unique(labels(refit))) < 3:
+            raise ValueError(f"{name}@{horizon}: a class is absent from training; refusing silent fallback")
+        if name.startswith("logit"):
+            best = None
+            for c in ((1.,) if name == "logit_m3" else FLOW_LOGIT_C):
+                model = make_pipeline(StandardScaler(), LogisticRegression(C=c, max_iter=1000))
+                with threadpool_limits(limits=1):
+                    model.fit(train[cols].to_numpy(float), labels(train))
+                loss = log_loss(labels(stop), model.predict_proba(stop[cols].to_numpy(float)), labels=[0, 1, 2])
+                if best is None or loss < best[0]:
+                    best = (loss, c)
+            info.update({"C": best[1], "stopping_logloss": float(best[0])})
+            model = make_pipeline(StandardScaler(), LogisticRegression(C=best[1], max_iter=1000))
+            with threadpool_limits(limits=1):
+                model.fit(refit[cols].to_numpy(float), labels(refit))
+            predict = lambda rows: model.predict_proba(rows[cols].to_numpy(float))
+        else:
+            def booster(depth: int, rounds: int | None) -> XGBClassifier:
+                return XGBClassifier(objective="multi:softprob", num_class=3, tree_method="hist", device="cpu",
+                                     n_jobs=threads, max_depth=depth, min_child_weight=10., learning_rate=.05,
+                                     reg_lambda=10., reg_alpha=.1, gamma=.1, subsample=.8, colsample_bytree=.8,
+                                     max_bin=64, n_estimators=256 if rounds is None else rounds,
+                                     early_stopping_rounds=20 if rounds is None else None,
+                                     eval_metric="mlogloss", random_state=SEED)
+            best = None
+            for depth in FLOW_XGB_DEPTHS:
+                probe = booster(depth, None)
+                probe.fit(train[cols].to_numpy(np.float32), labels(train),
+                          eval_set=[(stop[cols].to_numpy(np.float32), labels(stop))], verbose=False)
+                if best is None or float(probe.best_score) < best[0]:
+                    best = (float(probe.best_score), depth, int(probe.best_iteration) + 1)
+            info.update({"depth": best[1], "rounds": best[2], "stopping_mlogloss": best[0]})
+            model = booster(best[1], best[2])
+            model.fit(refit[cols].to_numpy(np.float32), labels(refit))
+            predict = lambda rows: model.predict_proba(rows[cols].to_numpy(np.float32))
+        p_cal, p_test = predict(cal), predict(test)
+    temperature_value = _flow_temperature(p_cal, labels(cal))
+    info["temperature"] = temperature_value
+    return temperature(p_cal, temperature_value), temperature(p_test, temperature_value), info
+
+
+def flow_walk_forward(panel: pd.DataFrame, threads: int) -> tuple[pd.DataFrame, dict]:
+    """Out-of-fold probabilities, thresholds and purge checks; no fold is silently omitted."""
+    end_all = pd.Timestamp(DEV_END, tz="UTC")
+    parts, folds = [], []
+    for start in pd.date_range(FLOW_FIRST_TEST, DEV_END, freq=f"{FLOW_BLOCK_DAYS}D", inclusive="left", tz="UTC"):
+        end = min(start + pd.Timedelta(days=FLOW_BLOCK_DAYS), end_all)
+        fold = {"start": str(start), "end": str(end), "purge_ok": True, "horizons": {}}
+        for h in FLOW_HORIZONS:
+            train, stop, cal, test = flow_splits(panel, h, start, end)
+            if min(len(train), len(stop), len(cal)) < 30 or test.empty:
+                raise ValueError(f"Insufficient history for fold {start.date()} horizon {h}")
+            settled = panel.time + pd.Timedelta(days=max(FLOW_HORIZONS)+1)
+            stop_start, cal_start = start - pd.Timedelta(days=2*FLOW_BLOCK_DAYS), start - pd.Timedelta(days=FLOW_BLOCK_DAYS)
+            fold["purge_ok"] &= bool(settled.loc[train.index].le(stop_start).all() and
+                                     settled.loc[stop.index].le(cal_start).all() and
+                                     settled.loc[cal.index].le(start).all())
+            fold["horizons"][str(h)] = {}
+            for name in FLOW_MODELS:
+                p_cal, p_test, info = flow_fit_predict(name, h, train, stop, cal, test, threads)
+                score_cal = np.maximum(p_cal[:, 0], p_cal[:, 2])
+                part = test[["time", "day", "early_dir", "early_cohort"]].reset_index(drop=True)
+                part["model"], part["horizon"], part["fold"] = name, h, str(start.date())
+                part[["p_down", "p_neutral", "p_up"]] = p_test
+                part["y"] = test[f"y{h}"].to_numpy(float)
+                part["score"] = np.maximum(p_test[:, 0], p_test[:, 2])
+                part["direction"] = np.where(p_test[:, 2] >= p_test[:, 0], 1, -1)
+                for c in FLOW_COVERAGES:
+                    part[f"thr_{c:.2f}"] = float(np.quantile(score_cal, 1-c))
+                parts.append(part)
+                fold["horizons"][str(h)][name] = {**info, "train_rows": len(train), "stopping_rows": len(stop),
+                                                  "calibration_rows": len(cal), "test_rows": len(test)}
+        folds.append(fold)
+    return pd.concat(parts, ignore_index=True), {"folds": folds}
+
+
+def flow_block_ci(sums: np.ndarray, counts: np.ndarray, block: int) -> dict:
+    """Circular daily-block bootstrap of sum/count; blocks keep temporal clustering intact."""
+    total = counts.sum()
+    if total <= 0:
+        return {"estimate": None, "ci95": [None, None], "block_days": block, "valid_draws": 0}
+    n = len(sums)
+    rng = np.random.default_rng(SEED)
+    starts = rng.integers(0, n, (FLOW_DRAWS, int(np.ceil(n / block))))
+    idx = ((starts[:, :, None] + np.arange(block)) % n).reshape(FLOW_DRAWS, -1)[:, :n]
+    s, c = sums[idx].sum(axis=1), counts[idx].sum(axis=1)
+    stat = s[c > 0] / c[c > 0]
+    ci = np.quantile(stat, [.025, .975]).tolist() if len(stat) >= .9 * FLOW_DRAWS else [None, None]
+    return {"estimate": float(sums.sum() / total), "ci95": ci, "block_days": block, "valid_draws": int(len(stat))}
+
+
+def _flow_calendar() -> pd.DatetimeIndex:
+    return pd.date_range(FLOW_FIRST_TEST, DEV_END, freq="D", inclusive="left", tz="UTC").as_unit("ns")
+
+
+def _flow_offsets(times: pd.Series) -> np.ndarray:
+    """Calendar offsets of availability times from the first test day."""
+    base = pd.Timestamp(FLOW_FIRST_TEST, tz="UTC").value // FLOW_NS_PER_DAY
+    return pd.DatetimeIndex(times).as_unit("ns").asi8 // FLOW_NS_PER_DAY - base
+
+
+def _flow_daily(values: np.ndarray, offsets: np.ndarray, n: int) -> np.ndarray:
+    return np.bincount(offsets, weights=values, minlength=n)[:n].astype(float)
+
+
+def _flow_episodes(dnum: np.ndarray, y: np.ndarray) -> list[tuple[int, int, int]]:
+    """Maximal runs of consecutive origin days sharing one nonzero 5-day label: (start, stop, direction)."""
+    episodes, i, n = [], 0, len(y)
+    while i < n:
+        j = i
+        while y[i] != 0 and j + 1 < n and y[j+1] == y[i] and dnum[j+1] - dnum[j] == 1:
+            j += 1
+        if y[i] != 0:
+            episodes.append((i, j+1, int(y[i])))
+        i = j + 1
+    return episodes
+
+
+def _flow_ece(p: np.ndarray, hit: np.ndarray, bins: int = 10) -> float:
+    edges = np.linspace(0, 1, bins+1)
+    which = np.clip(np.digitize(p, edges[1:-1]), 0, bins-1)
+    total = 0.
+    for k in range(bins):
+        m = which == k
+        if m.any():
+            total += m.mean() * abs(p[m].mean() - hit[m].mean())
+    return float(total)
+
+
+def _flow_probability_metrics(P: np.ndarray, y: np.ndarray) -> dict:
+    from sklearn.metrics import average_precision_score
+    up, down = y == 1, y == -1
+    pred = P.argmax(axis=1) - 1
+    return {"n": int(len(y)), "logloss": float(-np.log(np.clip(P[np.arange(len(y)), y+1], 1e-12, 1)).mean()),
+            "brier": float(((P - np.eye(3)[y+1])**2).sum(axis=1).mean()),
+            "accuracy": float(np.mean(pred == y)), "naive_neutral_accuracy": float(np.mean(y == 0)),
+            "balanced_accuracy": float(np.mean([np.mean(pred[y == k] == k) for k in (-1, 0, 1)])),
+            "AP_up": float(average_precision_score(up, P[:, 2])), "AP_down": float(average_precision_score(down, P[:, 0])),
+            "prevalence_up": float(up.mean()), "prevalence_down": float(down.mean()),
+            "ece_up": _flow_ece(P[:, 2], up.astype(float)), "ece_down": _flow_ece(P[:, 0], down.astype(float))}
+
+
+def _flow_alarm_stats(m: pd.DataFrame, episodes: list[tuple[int, int, int]], coverage: float) -> tuple[dict, pd.DataFrame]:
+    """Labelled rows only. Daily alarms, cooldown-thinned events and episode capture at one fixed threshold."""
+    alarm = (m.score >= m[f"thr_{coverage:.2f}"]).to_numpy()
+    yv, direction = m.y.to_numpy(int), m.direction.to_numpy(int)
+    hit = alarm & (direction == yv) & (yv != 0)
+    accepted, last = [], None
+    stamps = pd.DatetimeIndex(m.time).as_unit("ns").asi8
+    for i in np.flatnonzero(alarm):
+        if last is None or stamps[i] >= last + FLOW_COOLDOWN.value:
+            accepted.append(i)
+            last = stamps[i]
+    captured = [bool(np.any(alarm[s:e] & (direction[s:e] == d))) for s, e, d in episodes]
+    n_alarm, n_events = int(alarm.sum()), len(accepted)
+    stats = {"coverage_target": coverage, "coverage_realized": n_alarm / len(m),
+             "alarms": n_alarm, "alarm_hits": int(hit.sum()),
+             "precision": float(hit.sum() / n_alarm) if n_alarm else None,
+             "up_alarms": int((alarm & (direction == 1)).sum()), "down_alarms": int((alarm & (direction == -1)).sum()),
+             "events_after_cooldown": n_events, "event_hits": int(hit[accepted].sum()),
+             "event_precision": float(hit[accepted].sum() / n_events) if n_events else None,
+             "episodes": len(episodes), "episodes_captured": int(sum(captured)),
+             "episode_recall": float(sum(captured) / len(episodes)) if episodes else None}
+    events = m.loc[accepted, ["day", "time"]].assign(direction=direction[accepted])
+    return stats, events
+
+
+def flow_trades(events: pd.DataFrame, panel: pd.DataFrame, bars: pd.DataFrame, horizon: int,
+                entry_bars: int, cost_multiple: float = 1.) -> pd.DataFrame:
+    """Frozen alarms as one-unit trades: first open after the decision bar, close at day t+h, realized funding.
+
+    Round-trip cost is fee+slippage on each side. Funding is charged to longs when
+    positive and paid to shorts; settlements inside [entry, exit) count.
+    """
+    if events.empty:
+        return pd.DataFrame(columns=["day", "time", "direction", "gross", "funding", "net"])
+    entry = pd.DatetimeIndex(events.time + pd.Timedelta(hours=4*entry_bars)).as_unit("ns").asi8
+    exit_ = pd.DatetimeIndex(events.time + pd.Timedelta(days=horizon)).as_unit("ns").asi8
+    bar_t = pd.DatetimeIndex(bars.time).as_unit("ns").asi8
+    i_entry = np.searchsorted(bar_t, entry)
+    i_entry_clipped = np.minimum(i_entry, len(bar_t)-1)
+    entry_ok = (i_entry < len(bar_t)) & (bar_t[i_entry_clipped] == entry)
+    entry_px = bars.open.to_numpy(float)[i_entry_clipped]
+    exit_map = pd.Series(panel.close.to_numpy(float), index=pd.DatetimeIndex(panel.time).as_unit("ns").asi8)
+    exit_px = exit_map.reindex(exit_).to_numpy(float)
+    prefix = np.concatenate([[0.], np.cumsum(bars.funding_rate.to_numpy(float))])
+    funding = prefix[np.searchsorted(bar_t, exit_)] - prefix[np.searchsorted(bar_t, entry)]
+    side = events.direction.to_numpy(float)
+    gross = side * (exit_px / entry_px - 1)
+    cost = cost_multiple * 2 * (FEE_BPS + SLIPPAGE_BPS) / 1e4
+    net = gross - cost - side * funding
+    ok = entry_ok & np.isfinite(exit_px)
+    return pd.DataFrame({"day": events.day.to_numpy()[ok], "time": events.time.to_numpy()[ok],
+                         "direction": side[ok].astype(int), "gross": gross[ok], "funding": side[ok]*funding[ok],
+                         "net": net[ok]})
+
+
+def _flow_economics(trades: pd.DataFrame, n_cal: int) -> dict:
+    if trades.empty:
+        return {"trades": 0}
+    offsets = _flow_offsets(trades.time)
+    sums, counts = _flow_daily(trades.net.to_numpy(), offsets, n_cal), _flow_daily(np.ones(len(trades)), offsets, n_cal)
+    ci = flow_block_ci(sums, counts, FLOW_BLOCK_PRIMARY)
+    return {"trades": int(len(trades)), "mean_net_bp": float(trades.net.mean()*1e4),
+            "ci95_net_bp": [None if v is None else v*1e4 for v in ci["ci95"]],
+            "hit_rate": float((trades.net > 0).mean()), "mean_gross_bp": float(trades.gross.mean()*1e4),
+            "mean_funding_bp": float(trades.funding.mean()*1e4), "total_net_return_units": float(trades.net.sum())}
+
+
+def _flow_paired(wide: pd.DataFrame, model: str, base: str, block: int) -> dict:
+    """Positive estimate = model has lower loss than baseline on the same test days."""
+    calendar = _flow_calendar()
+    gain = (wide[base] - wide[model]).reindex(calendar)
+    sums, counts = gain.fillna(0).to_numpy(float), gain.notna().to_numpy(float)
+    out = flow_block_ci(sums, counts, block)
+    years = {}
+    for year in sorted(set(calendar.year)):
+        mask = np.asarray(calendar.year == year)
+        if counts[mask].sum() > 0:
+            years[str(year)] = float(sums[mask].sum() / counts[mask].sum())
+    out["by_year"] = years
+    out["years_positive"] = int(sum(v > 0 for v in years.values()))
+    return out
+
+
+def flow_evaluate(pred: pd.DataFrame, panel: pd.DataFrame, x: pd.DataFrame) -> dict:
+    """Scores every model on identical labelled test rows; alarms and trades are frozen before scoring."""
+    prob = pred[["p_down", "p_neutral", "p_up"]].to_numpy(float)
+    labelled = pred.y.notna().to_numpy()
+    cls = pred.y.fillna(0).to_numpy(int) + 1
+    pred["logloss"] = np.where(labelled, -np.log(np.clip(prob[np.arange(len(pred)), cls], 1e-12, 1)), np.nan)
+    pred["brier"] = np.where(labelled, ((prob - np.eye(3)[cls])**2).sum(axis=1), np.nan)
+    bars = x[["time", "open", "funding_rate"]].reset_index(drop=True)
+    n_cal = len(_flow_calendar())
+    horizons, trade_frames = {}, []
+    for h in FLOW_HORIZONS:
+        ph = pred.loc[pred.horizon.eq(h)]
+        base_rows = ph.loc[ph.model.eq("logit_price")].sort_values("time").reset_index(drop=True)
+        lab_idx = np.flatnonzero(base_rows.y.notna().to_numpy())
+        dnum = pd.DatetimeIndex(base_rows.day).as_unit("ns").asi8 // FLOW_NS_PER_DAY
+        episodes = _flow_episodes(dnum[lab_idx], base_rows.y.to_numpy(float)[lab_idx])
+        horizon_out = {"episodes": len(episodes), "episodes_up": sum(d == 1 for *_, d in episodes),
+                       "episodes_down": sum(d == -1 for *_, d in episodes), "models": {}}
+        wide_loss = ph.pivot(index="time", columns="model", values="logloss").reindex(_flow_calendar())
+        wide_brier = ph.pivot(index="time", columns="model", values="brier").reindex(_flow_calendar())
+        for name in FLOW_MODELS:
+            m = ph.loc[ph.model.eq(name)].sort_values("time").reset_index(drop=True)
+            if not np.array_equal(m.time.to_numpy(), base_rows.time.to_numpy()):
+                raise ValueError("Model rows are not aligned across the same test days")
+            ml = m.loc[m.y.notna()].reset_index(drop=True)
+            entry = _flow_probability_metrics(ml[["p_down", "p_neutral", "p_up"]].to_numpy(float), ml.y.to_numpy(int))
+            alarms, operating_events = {}, None
+            for c in FLOW_COVERAGES:
+                stats, events = _flow_alarm_stats(ml, episodes, c)
+                alarms[f"{c:.2f}"] = stats
+                if abs(c - FLOW_OPERATING) < 1e-9:
+                    operating_events = events
+            entry["alarms"] = alarms
+            offs = _flow_offsets(ml.time)
+            op_score = ml.score.to_numpy(float)
+            op_alarm = (op_score >= ml[f"thr_{FLOW_OPERATING:.2f}"].to_numpy(float)).astype(float)
+            op_hit = op_alarm * ((ml.direction.to_numpy(int) == ml.y.to_numpy(int)) & (ml.y.to_numpy(int) != 0))
+            entry["daily_precision_ci"] = {str(b): flow_block_ci(_flow_daily(op_hit, offs, n_cal), _flow_daily(op_alarm, offs, n_cal), b)
+                                          for b in (FLOW_BLOCK_PRIMARY, *FLOW_BLOCK_SENSITIVITY)}
+            shifted = np.roll(ml.y.to_numpy(int), 30)
+            control_hit = op_alarm.astype(bool) & (ml.direction.to_numpy(int) == shifted) & (shifted != 0)
+            entry["negative_control_precision_shift30"] = float(control_hit.sum() / op_alarm.sum()) if op_alarm.sum() else None
+            horizon_out["models"][name] = entry
+            if operating_events is not None:
+                for label, entry_bars, cost in (("primary", FLOW_ENTRY_BARS, 1.), ("delayed_entry", FLOW_ENTRY_BARS_DELAYED, 1.),
+                                                 ("double_cost", FLOW_ENTRY_BARS, 2.)):
+                    trades = flow_trades(operating_events, panel, bars, h, entry_bars, cost)
+                    entry.setdefault("economics", {})[label] = _flow_economics(trades, n_cal)
+                    if label == "primary" and len(trades):
+                        trade_frames.append(trades.assign(horizon=h, model=name))
+        horizon_out["paired_logloss"] = {}
+        horizon_out["paired_brier"] = {}
+        for model, base in FLOW_PAIRS:
+            horizon_out["paired_logloss"][f"{model}_vs_{base}"] = {
+                str(b): _flow_paired(wide_loss, model, base, b) for b in (FLOW_BLOCK_PRIMARY, *FLOW_BLOCK_SENSITIVITY)}
+            horizon_out["paired_brier"][f"{model}_vs_{base}"] = _flow_paired(wide_brier, model, base, FLOW_BLOCK_PRIMARY)
+        horizons[str(h)] = horizon_out
+    trades = pd.concat(trade_frames, ignore_index=True) if trade_frames else pd.DataFrame()
+    return {"horizons": horizons, "trades": trades}
+
+
+def _flow_clean(value):
+    """JSON-safe copy: NaN/inf become null, numpy scalars become Python numbers."""
+    if isinstance(value, dict):
+        return {k: _flow_clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_flow_clean(v) for v in value]
+    if isinstance(value, (np.floating, float)):
+        return float(value) if np.isfinite(value) else None
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    return value
+
+
+def flow_verdict(results: dict, folds: dict, pred: pd.DataFrame) -> dict:
+    """Verdict rules fixed in the protocol before scoring. Forecast and trading are judged separately."""
+    primary = results["horizons"][str(FLOW_PRIMARY)]
+    op = f"{FLOW_OPERATING:.2f}"
+    gains = {b: primary["paired_logloss"][f"logit_price_vs_{b}"]["21"] for b in FLOW_BASELINES}
+    all_lower_positive = all(g["ci95"][0] is not None and g["ci95"][0] > 0 for g in gains.values())
+    all_point_positive = all(g["estimate"] is not None and g["estimate"] > 0 for g in gains.values())
+    years_positive = min(g["years_positive"] for g in gains.values())
+    probabilities = pred[["p_down", "p_neutral", "p_up"]].to_numpy(float)
+    checks = {"purge_all_folds": all(f["purge_ok"] for f in folds["folds"]),
+              "probabilities_normalized": bool(np.allclose(probabilities.sum(axis=1), 1.)),
+              "no_duplicate_forecasts": not bool(pred.duplicated(["time", "model", "horizon"]).any())}
+    if not all(checks.values()):
+        forecast = "INVALID"
+    elif all_lower_positive and years_positive >= 3:
+        forecast = "PROMISING"
+    elif all_point_positive:
+        forecast = "WEAK"
+    else:
+        forecast = "NO_EDGE"
+    econ = primary["models"]["logit_price"]["alarms"][op]
+    trading_econ = primary["models"]["logit_price"]["economics"]["primary"]
+    if trading_econ.get("ci95_net_bp", [None])[0] is not None and trading_econ["ci95_net_bp"][0] > 0:
+        trading = "PROMISING"
+    elif trading_econ.get("mean_net_bp", 0) > 0:
+        trading = "WEAK"
+    else:
+        trading = "NO_EDGE"
+    precision_ci = primary["models"]["logit_price"]["daily_precision_ci"]["21"]
+    precision = precision_ci["estimate"]
+    lower = precision_ci["ci95"][0]
+    return {"checks": checks, "FORECAST_STATUS": forecast, "TRADING_STATUS": trading,
+            "POINT_PRECISION_80": bool(precision is not None and precision >= .8),
+            "LOWER_BOUND_80": bool(lower is not None and lower >= .8),
+            "primary_precision_estimate": precision, "primary_precision_ci21": precision_ci["ci95"],
+            "primary_alarms_operating": econ["alarms"], "primary_episodes": primary["episodes"],
+            "primary_events_after_cooldown": econ["events_after_cooldown"],
+            "gain_vs_baselines_ci21": {b: g["ci95"] for b, g in gains.items()},
+            "years_positive_min_across_baselines": years_positive, "trading_primary": trading_econ,
+            "xgb_vs_logit_logloss_ci21": primary["paired_logloss"]["xgb_price_vs_logit_price"]["21"]["ci95"],
+            "spot_added_ci21": primary["paired_logloss"]["logit_price_spot_vs_logit_price"]["21"]["ci95"],
+            "deriv_added_ci21": primary["paired_logloss"]["logit_price_deriv_vs_logit_price"]["21"]["ci95"]}
+
+
+def flow_research_run(x: pd.DataFrame, readiness: dict, args) -> None:
+    """Frozen DEV protocol: identity is written before any out-of-fold score exists."""
+    import sklearn
+    import xgboost
+    if (x.time >= pd.Timestamp(DEV_END, tz="UTC")).any():
+        raise ValueError("Flow research cannot access sealed 2025+ observations")
+    started = time.perf_counter()
+    flows, manifest = flow_inputs(DEV_END)
+    flow_hash = hashlib.sha256(flows.reset_index().to_csv(index=False).encode()).hexdigest()
+    panel = flow_panel(x, flows)
+    specification = {
+        "study": FLOW_STUDY, "asset": [SYMBOL], "input_window": [DEV_START, DEV_END],
+        "evaluation_first_test": FLOW_FIRST_TEST, "test_blocks_days": FLOW_BLOCK_DAYS,
+        "stopping_and_calibration": "each preceding 90 days; training is expanding history before stopping",
+        "purge": "label settled at time+7d plus one-day embargo before any later segment",
+        "horizons": list(FLOW_HORIZONS), "primary_horizon": FLOW_PRIMARY,
+        "target": f"normalized forward log return z=(p[t+h]-p[t])/(s_t*sqrt(h)); UP if z>{FLOW_Z}, DOWN if z<-{FLOW_Z}, else NEUTRAL",
+        "risk_scale": "EWMA of squared daily log returns, halflife 21 days, floor 1e-6, frozen per decision",
+        "feature_sets": {k: (v if v is not None else "baseline") for k, v in FLOW_MODELS.items()},
+        "models": {"prior": "smoothed training frequencies", "persistence": "smoothed frequencies by causal state",
+                   "momentum": "smoothed frequencies by m3 bin", "logit_m3": "multinomial logistic on m3",
+                   "logit": f"multinomial logistic, C chosen on stopping from {list(FLOW_LOGIT_C)}, standardized",
+                   "xgb": f"multi:softprob, depth chosen from {list(FLOW_XGB_DEPTHS)}, min_child_weight 10, eta .05, early stopping on stopping (20 rounds, 256 max)"},
+        "calibration": "one temperature on calibration rows; alarms use the calibration quantile of max(P_up, P_down)",
+        "alarm": {"coverage_targets": list(FLOW_COVERAGES), "operating": FLOW_OPERATING, "cooldown_days": 5,
+                  "episode": "maximal run of consecutive origins with same nonzero primary label"},
+        "costs": {"fee_bps_per_side": FEE_BPS, "slippage_bps_per_side": SLIPPAGE_BPS,
+                  "entry": f"open {FLOW_ENTRY_BARS} 4h bar after decision close; delayed {FLOW_ENTRY_BARS_DELAYED} bars",
+                  "exit": "close at day t+h", "funding": "realized 4h funding settlements inside the hold"},
+        "bootstrap": f"circular daily blocks {FLOW_BLOCK_PRIMARY} primary; {list(FLOW_BLOCK_SENSITIVITY)} sensitivity; {FLOW_DRAWS} draws",
+        "verdict_rules": {"FORECAST_PROMISING": "logit_price log-loss gain vs all four baselines has CI95 lower > 0 and positive in all test years",
+                          "FORECAST_WEAK": "all four point gains positive but not PROMISING",
+                          "TRADING_PROMISING": "primary entry net mean CI95 lower > 0 at 20% coverage",
+                          "TRADING_WEAK": "primary net mean positive but CI includes zero",
+                          "POINT/LOWER_BOUND_80": "precision point and CI lower >= .8 are reported as separate flags"},
+        "sealed_data_used": False, "independent_validation": False,
+        "trial_status": "first run of this protocol; prior regime and onset results are not reused as evidence",
+    }
+    identity = {"specification": specification, "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "input_sha256": readiness["file_sha256"], "aux_sha256": flow_hash, "aux_manifest": manifest,
+                "threads": args.xgb_threads,
+                "versions": {"numpy": np.__version__, "pandas": pd.__version__, "sklearn": sklearn.__version__, "xgboost": xgboost.__version__}}
+    path = Path(args.protocol)
+    if path.exists():
+        if json.loads(path.read_text())["identity"] != identity:
+            raise ValueError("Flow protocol/code/data mismatch; retain prior attempt and choose a new protocol path")
+    else:
+        atomic_write(path, lambda f: f.write(json.dumps({"identity": identity, "frozen_at_utc": pd.Timestamp.now(tz="UTC").isoformat()}, indent=2)+"\n"))
+    ts = time.perf_counter()
+    pred, folds = flow_walk_forward(panel, args.xgb_threads)
+    walk_seconds = time.perf_counter() - ts
+    ts = time.perf_counter()
+    results = flow_evaluate(pred, panel, x)
+    evaluate_seconds = time.perf_counter() - ts
+    verdict = flow_verdict(results, folds, pred)
+    verdict["checks"]["sealed_data_used"] = False
+    trades = results.pop("trades")
+    keep = ["time", "day", "horizon", "model", "fold", "p_down", "p_neutral", "p_up", "y", "score", "direction", "logloss", "brier"]
+    atomic_write(Path(args.forecasts), lambda f: pred[keep].to_csv(f, index=False))
+    atomic_write(Path(args.out), lambda f: trades.to_csv(f, index=False))
+    evidence = {"identity": identity, "readiness": readiness, "folds": folds["folds"], "results": results,
+                "verdict": verdict, "timings": {"walk_forward_seconds": walk_seconds, "evaluate_seconds": evaluate_seconds,
+                                                "total_seconds": time.perf_counter()-started},
+                "outputs_sha256": {str(p): hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in (args.protocol, args.forecasts, args.out)}}
+    atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(_flow_clean(evidence), indent=2, allow_nan=False)+"\n"))
+    print(json.dumps({"verdict": verdict, "primary_h5_logit_price_alarms": results["horizons"][str(FLOW_PRIMARY)]["models"]["logit_price"]["alarms"],
+                      "timings": evidence["timings"]}, indent=2, default=str))
+
+
 # Per-invocation performance evidence (kept separate from scientific evidence).
 _PERF_TIMINGS: dict[str, dict] = {}
 _PERF_CONTEXT: dict = {}
@@ -3073,6 +3707,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--research", action="store_true", help="Run locked BTC DEV market study + nested H1-A feasibility, not H1-A trades")
     parser.add_argument("--multi-research", action="store_true", help="Run historical core-5 H1-A/B/C, funding and 3R/5R studies; never opens sealed data")
     parser.add_argument("--regime-research", action="store_true", help="Four-year DEV-only XGBoost regime forecasts and original H1-A comparison")
+    parser.add_argument("--flow-research", action="store_true", help="DEV-only 3/5/7-day direction forecasts with spot/perp, funding/OI ablations and cost check")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
     parser.add_argument("--forecasts", default=None)
@@ -3089,8 +3724,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.xgb_threads < 1:
         parser.error("--xgb-threads must be positive")
-    if args.regime_research and (args.research or args.multi_research or args.unlock_oos or args.behavior or args.target_r != TARGET_R):
+    if args.regime_research and (args.research or args.multi_research or args.unlock_oos or args.behavior or args.target_r != TARGET_R or args.flow_research):
         parser.error("--regime-research is a separate DEV-only study; sealed OOS cannot be opened")
+    if args.flow_research and (args.research or args.multi_research or args.unlock_oos or args.behavior or args.target_r != TARGET_R):
+        parser.error("--flow-research is a separate DEV-only study; sealed OOS cannot be opened")
     args.multi_research = args.multi_research
     if args.research and args.multi_research:
         parser.error("--research and --multi-research are separate frozen studies")
@@ -3104,14 +3741,17 @@ def main(argv: list[str] | None = None) -> None:
     args.funding_forecasts = args.funding_forecasts or "core5_funding_forecasts.csv"
     args.out = args.out or ("core5_market_observations.csv" if args.multi_research else ("market_observations.csv" if args.research else "brick1_trades.csv"))
     args.evidence = args.evidence or ("core5_research_evidence.json" if args.multi_research else ("research_evidence.json" if args.research else "brick1_evidence.json"))
-    if args.regime_research:
+    if args.regime_research or args.flow_research:
         # Use distinct defaults; never overwrite the frozen original evidence.
         supplied = sys.argv[1:] if argv is None else argv
-        for option, attr, default in (("--protocol", "protocol", "regime_protocol.json"),
-                                      ("--forecasts", "forecasts", "regime_forecasts.csv"),
-                                      ("--onsets", "onsets", "regime_onsets.csv"),
-                                      ("--out", "out", "regime_daily.csv"),
-                                      ("--evidence", "evidence", "regime_evidence.json")):
+        defaults = (("--protocol", "protocol", "flow_protocol.json"), ("--forecasts", "forecasts", "flow_forecasts.csv"),
+                    ("--out", "out", "flow_trades.csv"), ("--evidence", "evidence", "flow_evidence.json")) if args.flow_research else (
+                   ("--protocol", "protocol", "regime_protocol.json"),
+                   ("--forecasts", "forecasts", "regime_forecasts.csv"),
+                   ("--onsets", "onsets", "regime_onsets.csv"),
+                   ("--out", "out", "regime_daily.csv"),
+                   ("--evidence", "evidence", "regime_evidence.json"))
+        for option, attr, default in defaults:
             if not any(a == option or a.startswith(option+"=") for a in supplied):
                 setattr(args, attr, default)
     if args.research and (args.unlock_oos or args.behavior or args.target_r != TARGET_R):
@@ -3131,8 +3771,10 @@ def main(argv: list[str] | None = None) -> None:
     file = Path(args.csv)
     try:
         extra = {}
-        if args.research or args.multi_research or args.regime_research:
-            extra.update({"--protocol":Path(args.protocol),"--forecasts":Path(args.forecasts),"--onsets":Path(args.onsets)})
+        if args.research or args.multi_research or args.regime_research or args.flow_research:
+            extra.update({"--protocol":Path(args.protocol),"--forecasts":Path(args.forecasts)})
+            if not args.flow_research:
+                extra["--onsets"] = Path(args.onsets)
         if args.multi_research:
             extra.update({"--h1b-events":Path(args.h1b_events),"--h1c-forecasts":Path(args.h1c_forecasts),
                           "--funding-forecasts":Path(args.funding_forecasts)})
@@ -3148,8 +3790,8 @@ def main(argv: list[str] | None = None) -> None:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
         _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos, "offline": args.offline, "download": args.download, "behavior": args.behavior, "target_r": args.target_r, "trials": args.trials})
         raw = pd.read_csv(io.BytesIO(file_bytes), float_precision="round_trip")
-        if args.regime_research and (pd.to_datetime(raw.time, utc=True) >= pd.Timestamp(DEV_END, tz="UTC")).any():
-            raise ValueError("Regime input contains sealed 2025+ data; supply historical DEV only")
+        if (args.regime_research or args.flow_research) and (pd.to_datetime(raw.time, utc=True) >= pd.Timestamp(DEV_END, tz="UTC")).any():
+            raise ValueError("Regime/flow input contains sealed 2025+ data; supply historical DEV only")
         if args.multi_research:
             assets, readiness = validate_core5(raw, file, file_hash=file_hash)
             source = {"status":"VERIFIED" if args.download else "UNVERIFIED",
@@ -3170,6 +3812,10 @@ def main(argv: list[str] | None = None) -> None:
         df, readiness = prepare_study(raw, file, start_date=start_date, end_date=end_date,
                                       file_hash=file_hash)
         readiness["funding_source_verification"] = source
+        if args.flow_research:
+            _PERF_CONTEXT["study_mode"] = "flow"
+            flow_research_run(df, readiness, args)
+            return
         if args.regime_research:
             _PERF_CONTEXT["study_mode"] = "regime"
             regime_research_run(df, readiness, args)
