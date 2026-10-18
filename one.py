@@ -1278,6 +1278,7 @@ def forecast_losses(y, p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataFrame,
                   years: float) -> dict:
     """One alarm / 7 days; strict signed pre-onset matching, deduplicated events."""
+    _started = time.perf_counter()
     detected, leads, alarms = set(), [], []
     # Confirmed onsets are chronological in onset_labels(). Index them once per
     # alarm scan rather than creating a full events DataFrame mask per candidate.
@@ -1318,6 +1319,7 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
             leads.append(lead_days)
         alarms.append({"time": str(row.time), "side": sign, "matched_onset_i": key, "lead_days": lead_days})
     false = sum(a["matched_onset_i"] is None for a in alarms)
+    _perf_time("h1a.alarm_metrics_seconds", time.perf_counter() - _started)
     return {"alarms": len(alarms), "detected_events": len(detected), "false_alarms": false,
             "false_per_asset_year": false/max(years, 1e-12),
             "precision": (len(alarms)-false)/len(alarms) if alarms else None,
@@ -1336,6 +1338,7 @@ def _calendar_block_starts(n: int) -> tuple[np.ndarray,...]:
 
 def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict:
     """Circular calendar-block CI from block prefix sums; avoids materializing 1000xN indices."""
+    _started = time.perf_counter()
     values = np.asarray(values, dtype=float)
     mean = np.nanmean(values, axis=0)
     estimate = 1-mean[1]/mean[0] if ratio else mean[0]
@@ -1362,6 +1365,7 @@ def _calendar_block_interval(values: np.ndarray, *, ratio: bool = False) -> dict
         details.append({"block_days":length,"ci95":ci,"nonempty_draws":len(stat)})
     valid = [row["ci95"] for row in details if row["ci95"][0] is not None]
     ci = [min(row[0] for row in valid),max(row[1] for row in valid)] if len(valid)==3 else [None,None]
+    _perf_time("statistics.calendar_block_seconds", time.perf_counter() - _started)
     return {"estimate":float(estimate),"ci95":ci,"sensitivity":details}
 
 
@@ -1565,6 +1569,7 @@ def mark_to_market_returns(x: pd.DataFrame, indices: list[int], side: int, hold_
 
 def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     """Independent descriptive study. Daily decisions, native 4h execution, no H1-A trades."""
+    _started = time.perf_counter()
     valid = d[H1A_MODELS["M2"] + ["atr", "funding3"]].notna().all(axis=1)
     # vectorbt's 42 bars represent seven days only on an uninterrupted 4h path.
     bad_step = x.time.diff().ne(pd.Timedelta(hours=4)).to_numpy(copy=True)
@@ -1584,6 +1589,7 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
     funding_prefix=np.r_[0.0,np.cumsum((x.open*x.funding_rate).to_numpy())]
     prepared=(open_price,close,funding_prefix)
     observations = []
+    _perf_time("market_observations.preparation_seconds", time.perf_counter() - _started)
     for side in (1, -1):
         a = ds.copy()
         a["side"] = side
@@ -1596,7 +1602,9 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
                 np.all(q_values[i+1:i+h+1]==side) for i in row_ids],dtype=float)
             a.loc[row_ids,f"return_{h}d"]=gross
             a.loc[row_ids,f"net_return_{h}d"]=net
+        _vbt_stage_started = time.perf_counter()
         matrix=evaluate_event_matrix(execution,signal_idx.tolist(),(3.,5.),side=side,hold_bars=HOLD_BARS)
+        _perf_time("market_observations.matrix_seconds", time.perf_counter() - _vbt_stage_started)
         by_event={(row["signal_i"],int(row["target_r"])):row for row in matrix}
         for target in (3,5):
             results=[by_event[(i,target)] for i in signal_idx]
@@ -1622,6 +1630,7 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
         "funding_opposes_momentum": aligned.side*aligned.funding3 < 0,
     }
     summaries = []
+    _summary_started = time.perf_counter()
     for label, mask in conditions.items():
         group = aligned.loc[mask].sort_values("time")
         result = {"condition": label, "N_overlapping_days": len(group), "horizons": {}, "barriers": {}}
@@ -1653,6 +1662,8 @@ def market_observations(x: pd.DataFrame, d: pd.DataFrame) -> tuple[pd.DataFrame,
                 "phase_mean_range": [float(phases.min()), float(phases.max())] if len(group) else [None, None],
                 "by_year": {str(y): {"N": len(g), "net_R": float(g[col].mean())} for y, g in group.groupby(group.time.dt.year)}}
         summaries.append(result)
+    _perf_time("market_observations.summaries_seconds", time.perf_counter() - _summary_started)
+    _perf_time("market_observations.total_seconds", time.perf_counter() - _started)
     return obs, summaries
 
 
@@ -1919,6 +1930,7 @@ def panel_block_interval(frame: pd.DataFrame, columns: list[str], *, ratio: bool
 def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_run: int = 365) -> np.ndarray:
     """Online BOCPD: Gaussian mean with Normal-Inverse-Gamma predictive, fixed hazard."""
     from scipy.special import gammaln
+    _started = time.perf_counter()
     r = pd.to_numeric(returns, errors="coerce").astype(float)
     scale = np.sqrt(r.pow(2).shift(1).rolling(20, min_periods=10).mean())
     x = (r/scale).clip(-10, 10).to_numpy()
@@ -1953,6 +1965,7 @@ def bocpd_recent_probability(returns: pd.Series, *, hazard: float = 1/60, max_ru
         alpha = np.concatenate(([3.0], new_alpha[:max_run]))
         beta = np.concatenate(([1.5+.5*.1*obs**2/1.1], new_beta[:max_run]))
         probs = next_prob
+    _perf_time("h1b.bocpd_seconds", time.perf_counter() - _started)
     return output
 
 
