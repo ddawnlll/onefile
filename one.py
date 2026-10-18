@@ -2497,6 +2497,22 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
                         if name == loop["function"] and loop["line"] <= lineno <= loop["end_line"]
                         for _, seconds in records)
                 loop_mode = "line_profiler_active"
+            hotspots = sorted(
+                ({"operation": name, "seconds": rec["total_seconds"],
+                  "percent_of_e2e": round(100 * rec["total_seconds"] / max(elapsed, 1e-12), 2),
+                  "calls": rec["count"]}
+                 for name, rec in _PERF_TIMINGS.items()),
+                key=lambda item: item["seconds"], reverse=True)
+            stages = {}
+            for stage_values in _PERF_CONTEXT.get("core5_runtime_by_symbol", {}).values():
+                for name, seconds in stage_values.items():
+                    if name != "total_seconds":
+                        stages[name] = stages.get(name, 0.) + seconds
+            core5_hotspots = sorted(
+                ({"stage": name, "seconds": seconds,
+                  "percent_of_e2e": round(100 * seconds / max(elapsed, 1e-12), 2)}
+                 for name, seconds in stages.items()),
+                key=lambda item: item["seconds"], reverse=True)
             report = {
                 "schema": "onefile-performance-v1",
                 "run_id": run_id,
@@ -2508,6 +2524,9 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
                 "error": failure,
                 "wall_seconds": elapsed,
                 "cpu_seconds": cpu,
+                "cpu_to_wall_ratio": cpu / max(elapsed, 1e-12),
+                "sampled_hotspots": hotspots,
+                "core5_stage_hotspots": core5_hotspots,
                 "sampling": sampling if line_profiler is None else "off_during_exact_line_tracing",
                 "loop_profile_mode": loop_mode,
                 "timings": _PERF_TIMINGS,
@@ -2518,6 +2537,8 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
                     "Loop inventory is static; without --profile-loops, iteration counts are unknown.",
                     "Line tracing is expensive and changes wall time; compare runs with matching profiling modes.",
                     "Loop body line-time is approximate and nested loop totals overlap; do not sum them.",
+                    "Hotspots are inclusive/overlapping timings; do not add their percentages.",
+                    "Only module-level functions are directly instrumented by line_profiler; nested closures may not have hit counts.",
                     "Numba-compiled inner loops are not visible as Python line hits.",
                 ],
             }
@@ -2531,10 +2552,22 @@ def _run_with_performance_audit(argv: list[str] | None = None) -> None:
                     report["comparison"] = {"status": "NOT_COMPARABLE", "reason": "No valid baseline timing"}
                 else:
                     baseline = old["wall_seconds"]
-                    report["comparison"] = {"status": "COMPARABLE_PROFILE_MODE_AND_INPUT",
-                                            "baseline_wall_seconds": baseline,
-                                            "wall_reduction_percent": 100 * (baseline - elapsed) / baseline,
-                                            "speedup_x": baseline / elapsed}
+                    old_timings = old.get("timings") or {}
+                    stage_changes = {}
+                    for name, rec in _PERF_TIMINGS.items():
+                        older = old_timings.get(name, {})
+                        previous = older.get("total_seconds", 0)
+                        if previous > 0:
+                            stage_changes[name] = {
+                                "baseline_seconds": previous, "current_seconds": rec["total_seconds"],
+                                "time_reduction_percent": 100 * (previous - rec["total_seconds"]) / previous,
+                                "baseline_calls": older.get("count"), "current_calls": rec["count"]}
+                    report["comparison"] = {
+                        "status": "COMPARABLE_PROFILE_MODE_AND_INPUT",
+                        "baseline_wall_seconds": baseline,
+                        "wall_reduction_percent": 100 * (baseline - elapsed) / baseline,
+                        "speedup_x": baseline / elapsed,
+                        "operation_time_reductions": stage_changes}
             path = base.with_suffix(".json")
             atomic_write(path, lambda stream: stream.write(json.dumps(report, indent=2, allow_nan=False) + "\n"))
             print(f"Performance audit: {path} ({elapsed:.3f}s, {loop_mode})", file=sys.stderr)
