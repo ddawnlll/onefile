@@ -51,6 +51,21 @@ The 29 unmatched setups remain in the exported CSV (`matched=false`) and full-st
 ---
 
 
+## Regime v4: evidence audit and unseen-asset holdout (DEV only)
+
+```bash
+uv run --no-sync python one.py --regime3 --regime3-scope final                              # core-5 + audit artifacts
+uv run --no-sync python one.py --regime3 --regime3-universe holdout --regime3-scope final   # pre-registered 12 unseen assets
+```
+
+Every run writes `artifacts/regime/<run_id>/`: a manifest (git, data SHA, configs, splits, thresholds,
+timings), predictions, features at forecast time, alarm and event records with FP and miss reasons,
+lead time, natural regime duration, fold metrics, calibration and a comparison report. A parity check
+re-derives every metric from disk. The verdict is still **NO_EDGE_80**: on 12 never-examined assets
+the unchanged `mc`/`fixed70` system scores 78/102 = 76.5% precision with 19.7% recall. Every alarm is
+mechanical (window drop-off arithmetic), and no feature group beats the Monte Carlo baseline. See
+[REGIME4_REPORT.md](REGIME4_REPORT.md).
+
 ## Pooled core-5 regime forecasting v3 (DEV only)
 
 ```bash

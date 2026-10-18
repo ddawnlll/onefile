@@ -1,0 +1,1087 @@
+{
+  "run_id": "20261018T150333Z-core5-final-cd00be92",
+  "created_utc": "2026-10-18T15:03:45.353789+00:00",
+  "git": {
+    "commit": "02230410c0360cb20fb12a7ff8c7d63916d2d97c",
+    "dirty": false
+  },
+  "code_sha256": "32a4997aa7c815d2d7d842a1fcb00a34639e496bbd6b1629ee819d4dbdec5389",
+  "universe": "core5",
+  "scope": "final",
+  "data": {
+    "path": "core5_4h.csv",
+    "sha256": "6315f59770d46850e7eb8ea641a0bc8f6d135fbd1405e83ddf301b5705911156",
+    "source": "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision/data/futures/um/monthly",
+    "rows": 52933,
+    "window": [
+      "2020-01-01",
+      "2025-01-01"
+    ],
+    "per_asset": {
+      "BTCUSDT": [
+        "2020-01-01 00:00:00+00:00",
+        "2024-12-31 20:00:00+00:00",
+        10962
+      ],
+      "ETHUSDT": [
+        "2020-01-01 00:00:00+00:00",
+        "2024-12-31 20:00:00+00:00",
+        10962
+      ],
+      "SOLUSDT": [
+        "2020-09-14 04:00:00+00:00",
+        "2024-12-31 20:00:00+00:00",
+        9389
+      ],
+      "XRPUSDT": [
+        "2020-01-06 08:00:00+00:00",
+        "2024-12-31 20:00:00+00:00",
+        10900
+      ],
+      "BNBUSDT": [
+        "2020-02-10 08:00:00+00:00",
+        "2024-12-31 20:00:00+00:00",
+        10720
+      ]
+    }
+  },
+  "assets": [
+    "BNBUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "models": [
+    "no_event",
+    "prior",
+    "structural",
+    "mc",
+    "logistic",
+    "xgb"
+  ],
+  "policies": [
+    "precision80",
+    "budget",
+    "fixed70"
+  ],
+  "primary": [
+    "mc",
+    "fixed70"
+  ],
+  "holdout_preregistration": null,
+  "config": {
+    "logistic": {
+      "features": [
+        "lrw_up",
+        "lrw_down",
+        "need_up",
+        "need_down",
+        "er_proj"
+      ],
+      "C": 1.0,
+      "class_weight": "sqrt"
+    },
+    "xgb": {
+      "features": [
+        "rw_up",
+        "rw_down",
+        "need_up",
+        "need_down",
+        "drop_r7",
+        "er_proj",
+        "q",
+        "z20",
+        "er20"
+      ],
+      "max_depth": 2,
+      "min_child_weight": 2.0,
+      "learning_rate": 0.05,
+      "reg_lambda": 10.0,
+      "reg_alpha": 0.1,
+      "gamma": 0.1,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "max_bin": 64,
+      "rounds": 30,
+      "class_weight": "sqrt",
+      "base_margin": true
+    },
+    "fixed": 0.7,
+    "budget": 12.0,
+    "min_history_alarms": 10,
+    "horizon": 7,
+    "confirm": 5,
+    "mc": {
+      "paths": 400,
+      "df": 4.0,
+      "seed": 42
+    },
+    "tune_end": "2023-01-01"
+  },
+  "features": [
+    "age",
+    "r5",
+    "r20",
+    "r63",
+    "z20",
+    "er20",
+    "distance",
+    "dz5",
+    "rv5",
+    "rv20",
+    "compression",
+    "volume_surprise",
+    "r1",
+    "q",
+    "z5",
+    "er5",
+    "body_atr",
+    "range_atr",
+    "close_location",
+    "funding3",
+    "rw_up",
+    "rw_down",
+    "need_up",
+    "need_down",
+    "drop_r7",
+    "er_proj"
+  ],
+  "timings": {
+    "research_seconds": 40.675967622999906
+  },
+  "splits": [
+    {
+      "start": "2021-01-01",
+      "train_N": 373,
+      "stopping_N": 316,
+      "calibration_N": 347,
+      "test_N": 905,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.057396954000068945
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": null,
+            "history_rows": 347
+          },
+          "heads": {},
+          "fit_seconds": 0.0011015420000148879
+        },
+        "structural": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.4785953140507452,
+            "history_rows": 347
+          },
+          "heads": {},
+          "fit_seconds": 0.0005480419999912556
+        },
+        "mc": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.29445445378151275,
+            "history_rows": 347
+          },
+          "heads": {},
+          "fit_seconds": 0.000948590999996668
+        },
+        "logistic": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.4166887908047314,
+            "history_rows": 347
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 581,
+              "fit_class_counts": [
+                533,
+                48
+              ],
+              "coef": {
+                "lrw_up": 0.8553,
+                "lrw_down": 0.7731,
+                "need_up": -0.3771,
+                "need_down": 0.9432,
+                "er_proj": 0.65
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 677,
+              "fit_class_counts": [
+                672,
+                5
+              ],
+              "coef": {
+                "lrw_up": -0.0849,
+                "lrw_down": 1.0071,
+                "need_up": 0.2193,
+                "need_down": -1.1488,
+                "er_proj": 0.164
+              },
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.05428578999999445
+        },
+        "xgb": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.40641724394549883,
+            "history_rows": 347
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 581,
+              "fit_class_counts": [
+                533,
+                48
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 677,
+              "fit_class_counts": [
+                672,
+                5
+              ],
+              "rounds": 30,
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.05041695299996718
+        }
+      }
+    },
+    {
+      "start": "2021-07-01",
+      "train_N": 1140,
+      "stopping_N": 385,
+      "calibration_N": 390,
+      "test_N": 920,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.0008475679999264685
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": null,
+            "history_rows": 1230
+          },
+          "heads": {},
+          "fit_seconds": 0.0011147889999847393
+        },
+        "structural": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.4949829226393909,
+            "history_rows": 1230
+          },
+          "heads": {},
+          "fit_seconds": 0.0006787460001760337
+        },
+        "mc": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.3121344537815128,
+            "history_rows": 1230
+          },
+          "heads": {},
+          "fit_seconds": 0.0008412760000737762
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8482598709913579,
+            "budget": 0.4568641996893964,
+            "history_rows": 1230
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 1196,
+              "fit_class_counts": [
+                1073,
+                123
+              ],
+              "coef": {
+                "lrw_up": 0.8414,
+                "lrw_down": 0.6343,
+                "need_up": -0.382,
+                "need_down": 1.2,
+                "er_proj": 0.3897
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 1502,
+              "fit_class_counts": [
+                1490,
+                12
+              ],
+              "coef": {
+                "lrw_up": 0.2215,
+                "lrw_down": 1.3318,
+                "need_up": -0.3256,
+                "need_down": -1.5483,
+                "er_proj": 0.8917
+              },
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.041192389000116236
+        },
+        "xgb": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.4022617625278591,
+            "history_rows": 1230
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 1196,
+              "fit_class_counts": [
+                1073,
+                123
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 1502,
+              "fit_class_counts": [
+                1490,
+                12
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.06920124900011615
+        }
+      }
+    },
+    {
+      "start": "2022-01-01",
+      "train_N": 2045,
+      "stopping_N": 395,
+      "calibration_N": 395,
+      "test_N": 707,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.001022691000116538
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.0855505525992632,
+            "history_rows": 2155
+          },
+          "heads": {},
+          "fit_seconds": 0.0014452469999923778
+        },
+        "structural": {
+          "policy": {
+            "precision80": 0.8382618443353229,
+            "budget": 0.5139899981660963,
+            "history_rows": 2155
+          },
+          "heads": {},
+          "fit_seconds": 0.0008344989998931851
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.5767110084033618,
+            "budget": 0.3536596638655464,
+            "history_rows": 2155
+          },
+          "heads": {},
+          "fit_seconds": 0.0007705999998961488
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8048793713562985,
+            "budget": 0.4062962440798398,
+            "history_rows": 2155
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 1875,
+              "fit_class_counts": [
+                1667,
+                208
+              ],
+              "coef": {
+                "lrw_up": 0.9215,
+                "lrw_down": 0.4478,
+                "need_up": -0.3783,
+                "need_down": 1.1794,
+                "er_proj": 0.5181
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 2392,
+              "fit_class_counts": [
+                2361,
+                31
+              ],
+              "coef": {
+                "lrw_up": 0.0552,
+                "lrw_down": 1.3326,
+                "need_up": 0.0855,
+                "need_down": -1.29,
+                "er_proj": 0.4404
+              },
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.039312376999987464
+        },
+        "xgb": {
+          "policy": {
+            "precision80": 0.7794418057022976,
+            "budget": 0.40323341168275406,
+            "history_rows": 2155
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 1875,
+              "fit_class_counts": [
+                1667,
+                208
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 2392,
+              "fit_class_counts": [
+                2361,
+                31
+              ],
+              "rounds": 30,
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.04134681899995485
+        }
+      }
+    },
+    {
+      "start": "2022-07-01",
+      "train_N": 2965,
+      "stopping_N": 321,
+      "calibration_N": 258,
+      "test_N": 920,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.0010636679999151966
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": null,
+            "history_rows": 2701
+          },
+          "heads": {},
+          "fit_seconds": 0.0013933330001236754
+        },
+        "structural": {
+          "policy": {
+            "precision80": 0.8484339204391915,
+            "budget": 0.5133582152722399,
+            "history_rows": 2701
+          },
+          "heads": {},
+          "fit_seconds": 0.0009292309998727433
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.6433529411764664,
+            "budget": 0.345,
+            "history_rows": 2701
+          },
+          "heads": {},
+          "fit_seconds": 0.0008975839998583979
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8608330194539073,
+            "budget": 0.3865109152863391,
+            "history_rows": 2701
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 2652,
+              "fit_class_counts": [
+                2410,
+                242
+              ],
+              "coef": {
+                "lrw_up": 0.8201,
+                "lrw_down": 0.4826,
+                "need_up": -0.5333,
+                "need_down": 1.5543,
+                "er_proj": 0.3483
+              },
+              "calibration": "identity (<5 per class)"
+            },
+            "down": {
+              "fit_rows": 3144,
+              "fit_class_counts": [
+                3053,
+                91
+              ],
+              "coef": {
+                "lrw_up": 0.2642,
+                "lrw_down": 1.3883,
+                "need_up": 0.8323,
+                "need_down": -1.8403,
+                "er_proj": -0.284
+              },
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.04508138300002429
+        },
+        "xgb": {
+          "policy": {
+            "precision80": 0.8181408560576553,
+            "budget": 0.39426361212209493,
+            "history_rows": 2701
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 2652,
+              "fit_class_counts": [
+                2410,
+                242
+              ],
+              "rounds": 30,
+              "calibration": "identity (<5 per class)"
+            },
+            "down": {
+              "fit_rows": 3144,
+              "fit_class_counts": [
+                3053,
+                91
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.08420708700009527
+        }
+      }
+    },
+    {
+      "start": "2023-01-01",
+      "train_N": 3648,
+      "stopping_N": 395,
+      "calibration_N": 395,
+      "test_N": 905,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.0011928199999147182
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.0855505525992632,
+            "history_rows": 3758
+          },
+          "heads": {},
+          "fit_seconds": 0.001510894999910306
+        },
+        "structural": {
+          "policy": {
+            "precision80": 0.8866662053473995,
+            "budget": 0.5185789787867625,
+            "history_rows": 3758
+          },
+          "heads": {},
+          "fit_seconds": 0.0009695819999251398
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.64,
+            "budget": 0.35,
+            "history_rows": 3758
+          },
+          "heads": {},
+          "fit_seconds": 0.0009455899999011308
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8788704968976772,
+            "budget": 0.3634558110139656,
+            "history_rows": 3758
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 3349,
+              "fit_class_counts": [
+                3063,
+                286
+              ],
+              "coef": {
+                "lrw_up": 0.8241,
+                "lrw_down": 0.4694,
+                "need_up": -0.477,
+                "need_down": 1.6279,
+                "er_proj": 0.3753
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 3819,
+              "fit_class_counts": [
+                3665,
+                154
+              ],
+              "coef": {
+                "lrw_up": 0.3231,
+                "lrw_down": 0.6651,
+                "need_up": 1.5868,
+                "need_down": -1.9461,
+                "er_proj": -0.3594
+              },
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.05660875500007023
+        },
+        "xgb": {
+          "policy": {
+            "precision80": 0.8338890218564442,
+            "budget": 0.3880505946661745,
+            "history_rows": 3758
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 3349,
+              "fit_class_counts": [
+                3063,
+                286
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 3819,
+              "fit_class_counts": [
+                3665,
+                154
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.10616301000004569
+        }
+      }
+    },
+    {
+      "start": "2023-07-01",
+      "train_N": 4568,
+      "stopping_N": 385,
+      "calibration_N": 390,
+      "test_N": 920,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.0021972110000660905
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.0855505525992632,
+            "history_rows": 4658
+          },
+          "heads": {},
+          "fit_seconds": 0.0039725369999814575
+        },
+        "structural": {
+          "policy": {
+            "precision80": 0.87524307021034,
+            "budget": 0.5134562701749354,
+            "history_rows": 4658
+          },
+          "heads": {},
+          "fit_seconds": 0.0012945650000801834
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.7,
+            "budget": 0.345,
+            "history_rows": 4658
+          },
+          "heads": {},
+          "fit_seconds": 0.0013481670000601298
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8427980887381724,
+            "budget": 0.3371980166611214,
+            "history_rows": 4658
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 4144,
+              "fit_class_counts": [
+                3802,
+                342
+              ],
+              "coef": {
+                "lrw_up": 1.1813,
+                "lrw_down": 0.3851,
+                "need_up": -0.3731,
+                "need_down": 1.2296,
+                "er_proj": 0.4883
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 4673,
+              "fit_class_counts": [
+                4503,
+                170
+              ],
+              "coef": {
+                "lrw_up": 0.2891,
+                "lrw_down": 0.8098,
+                "need_up": 1.3335,
+                "need_down": -1.7267,
+                "er_proj": -0.2709
+              },
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.055528460000005
+        },
+        "xgb": {
+          "policy": {
+            "precision80": 0.7957416753353188,
+            "budget": 0.35102157505069453,
+            "history_rows": 4658
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 4144,
+              "fit_class_counts": [
+                3802,
+                342
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 4673,
+              "fit_class_counts": [
+                4503,
+                170
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.05890758300006382
+        }
+      }
+    },
+    {
+      "start": "2024-01-01",
+      "train_N": 5473,
+      "stopping_N": 395,
+      "calibration_N": 395,
+      "test_N": 910,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.001332047000005332
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.0855505525992632,
+            "history_rows": 5583
+          },
+          "heads": {},
+          "fit_seconds": 0.00189727099996162
+        },
+        "structural": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.5192192722045774,
+            "history_rows": 5583
+          },
+          "heads": {},
+          "fit_seconds": 0.0013293639999574225
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.715,
+            "budget": 0.345,
+            "history_rows": 5583
+          },
+          "heads": {},
+          "fit_seconds": 0.0012009250001483451
+        },
+        "logistic": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.316472686917833,
+            "history_rows": 5583
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 4993,
+              "fit_class_counts": [
+                4629,
+                364
+              ],
+              "coef": {
+                "lrw_up": 1.298,
+                "lrw_down": 0.4036,
+                "need_up": -0.4547,
+                "need_down": 1.1243,
+                "er_proj": 0.4592
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 5505,
+              "fit_class_counts": [
+                5281,
+                224
+              ],
+              "coef": {
+                "lrw_up": 0.8795,
+                "lrw_down": 0.4692,
+                "need_up": 2.1658,
+                "need_down": -1.373,
+                "er_proj": 0.008
+              },
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.044485688000122536
+        },
+        "xgb": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.33895888714229366,
+            "history_rows": 5583
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 4993,
+              "fit_class_counts": [
+                4629,
+                364
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 5505,
+              "fit_class_counts": [
+                5281,
+                224
+              ],
+              "rounds": 30,
+              "calibration": "identity (<5 per class)"
+            }
+          },
+          "fit_seconds": 0.075956799000096
+        }
+      }
+    },
+    {
+      "start": "2024-07-01",
+      "train_N": 6393,
+      "stopping_N": 390,
+      "calibration_N": 390,
+      "test_N": 920,
+      "models": {
+        "no_event": {
+          "policy": {
+            "precision80": null,
+            "budget": null
+          },
+          "heads": {},
+          "fit_seconds": 0.0015445999999883497
+        },
+        "prior": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.0855505525992632,
+            "history_rows": 6488
+          },
+          "heads": {},
+          "fit_seconds": 0.0017647729998770956
+        },
+        "structural": {
+          "policy": {
+            "precision80": null,
+            "budget": 0.5134834548731585,
+            "history_rows": 6488
+          },
+          "heads": {},
+          "fit_seconds": 0.0012919149999106594
+        },
+        "mc": {
+          "policy": {
+            "precision80": 0.6833206512605033,
+            "budget": 0.335,
+            "history_rows": 6488
+          },
+          "heads": {},
+          "fit_seconds": 0.0014993879999565252
+        },
+        "logistic": {
+          "policy": {
+            "precision80": 0.8886620933028636,
+            "budget": 0.2989585519213247,
+            "history_rows": 6488
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 5646,
+              "fit_class_counts": [
+                5162,
+                484
+              ],
+              "coef": {
+                "lrw_up": 1.681,
+                "lrw_down": 0.5564,
+                "need_up": -0.0926,
+                "need_down": 1.2211,
+                "er_proj": 0.4204
+              },
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 6402,
+              "fit_class_counts": [
+                6171,
+                231
+              ],
+              "coef": {
+                "lrw_up": 0.8423,
+                "lrw_down": 0.4856,
+                "need_up": 2.1852,
+                "need_down": -1.4418,
+                "er_proj": 0.0332
+              },
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.060402356000167856
+        },
+        "xgb": {
+          "policy": {
+            "precision80": 0.8582607269908191,
+            "budget": 0.3147641698823256,
+            "history_rows": 6488
+          },
+          "heads": {
+            "up": {
+              "fit_rows": 5646,
+              "fit_class_counts": [
+                5162,
+                484
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            },
+            "down": {
+              "fit_rows": 6402,
+              "fit_class_counts": [
+                6171,
+                231
+              ],
+              "rounds": 30,
+              "calibration": "sigmoid on later segment"
+            }
+          },
+          "fit_seconds": 0.11226368699999512
+        }
+      }
+    }
+  ],
+  "verdict": {
+    "primary": [
+      "mc",
+      "fixed70"
+    ],
+    "checks": {
+      "precision>=.80": false,
+      "wilson_lower>=.70": false,
+      "alarms>=40": true,
+      "hit_weeks>=20": true,
+      "recall>=.10": true,
+      "untouched_precision>=.75_with>=15alarms": false,
+      "every_year_precision>=.60": true
+    },
+    "verdict": "NO_EDGE_80"
+  },
+  "parity": {
+    "predictions_roundtrip": "PASS",
+    "mismatches": [],
+    "reference": {
+      "path": "regime3_final.json",
+      "status": "PASS",
+      "differences": []
+    }
+  },
+  "files": {
+    "predictions.csv.gz": "7eed8362aa8d45599a40f3549fb4f275c8a469fb250124597623896c7c79f0fb",
+    "features.csv.gz": "24213b8cf262c07bc152690296375bb391ea0a869b2a4b74028d74e0abf9f69c",
+    "alarms.csv": "13a4163f82af7aadc5fe39000667fe0811ff25ea640287813e874088192c2ede",
+    "events.csv": "decebb1db74e0841fd7f75248f6a87b1cc548af986570806a170cb8b1e9251d8",
+    "fold_metrics.csv": "ca729a0f01cc0a332b13cf1cecb2918fb9fca72f95629b18f400e638ca6a3efd",
+    "calibration.csv": "0f6efa2cc0b644ecbe17596079b4203d64b0fc6d11caf50da18781d0cff51027",
+    "comparison.json": "afdf887801d16cc2043ed8af6795f76c6bde06aae8cae5c8e0f8be14c6613b0d",
+    "comparison.md": "f70489c772f5145ad4d1be40d70af96640d0bbe311a53eb8d69044af640a5d6b"
+  },
+  "sealed_data_used": false
+}
