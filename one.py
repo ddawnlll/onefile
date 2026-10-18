@@ -1241,8 +1241,12 @@ def forecast_prob(train: pd.DataFrame, test: pd.DataFrame, cols: list[str], c: f
     from threadpoolctl import threadpool_limits
     model = make_pipeline(StandardScaler(), LogisticRegression(C=c, max_iter=100, solver="newton-cholesky"))
     with threadpool_limits(limits=1):
+        started = time.perf_counter()
         model.fit(train[cols], y)
+        _perf_time("h1a.training_seconds", time.perf_counter()-started)
+        started = time.perf_counter()
         p = model.predict_proba(test[cols])
+        _perf_time("h1a.inference_seconds", time.perf_counter()-started)
     return p[:, [list(model[-1].classes_).index(k) for k in H1A_CLASSES]]
 
 
@@ -1254,13 +1258,19 @@ def forecast_prob_grid(train: pd.DataFrame, test: pd.DataFrame, cols: list[str],
     if len(np.unique(y))<3:
         prior=(np.array([(y==k).sum() for k in H1A_CLASSES])+1)/(len(y)+3)
         return {c:np.tile(prior,(len(test),1)) for c in c_values}
+    started = time.perf_counter()
     scaler=StandardScaler().fit(train[cols])
     xt=scaler.transform(train[cols]); xv=scaler.transform(test[cols])
+    _perf_time("h1a.training_seconds", time.perf_counter()-started)
     model=LogisticRegression(C=c_values[0],max_iter=100,solver="newton-cholesky",warm_start=True)
     result={}
     for c in c_values:
+        started = time.perf_counter()
         model.set_params(C=c).fit(xt,y)
+        _perf_time("h1a.training_seconds", time.perf_counter()-started)
+        started = time.perf_counter()
         predicted=model.predict_proba(xv)
+        _perf_time("h1a.inference_seconds", time.perf_counter()-started)
         result[c]=predicted[:,[list(model.classes_).index(k) for k in H1A_CLASSES]]
     return result
 
@@ -1396,7 +1406,9 @@ def h1a_gate(up: int, down: int, clusters: int, gain: dict, alarms: dict, *, cor
             "forecast_score_gate": bool(score_pass), "heldout_utility_gate": bool(utility_pass)}
 
 
-def h1a_experiment(d: pd.DataFrame, events: pd.DataFrame, *, fast: bool = False) -> tuple[pd.DataFrame, dict]:
+def h1a_experiment(d: pd.DataFrame, events: pd.DataFrame, *, fast: bool = False,
+                   evaluation_start: str = "2023-01-01",
+                   inner_start: str = "2021-07-01") -> tuple[pd.DataFrame, dict]:
     """Three-year expanding train; 6mo tests; fast mode fixes C=1 and nests only alert selection."""
     from sklearn.metrics import average_precision_score
     usable = d.risk & np.isfinite(d[H1A_MODELS["M2"]]).all(axis=1)
@@ -1412,7 +1424,7 @@ def h1a_experiment(d: pd.DataFrame, events: pd.DataFrame, *, fast: bool = False)
         stop = min(end, cap) if pd.notna(cap) else start
         days = max(0, (stop-start).days)
         return {"start": str(start), "end_exclusive": str(max(start, stop)), "days": days}
-    for start in pd.date_range("2023-01-01", DEV_END, freq="6MS", inclusive="left", tz="UTC"):
+    for start in pd.date_range(evaluation_start, DEV_END, freq="6MS", inclusive="left", tz="UTC"):
         end = start + pd.DateOffset(months=6)
         train = allrows.loc[allrows.y.notna() & (allrows.time + pd.Timedelta(days=17) < start)]
         test = allrows.loc[(allrows.time >= start) & (allrows.time < end)]
@@ -1435,12 +1447,12 @@ def h1a_experiment(d: pd.DataFrame, events: pd.DataFrame, *, fast: bool = False)
         pred["fold"] = str(start.date())
         pred["label_maturity_time"] = pred.time + pd.Timedelta(days=17)
         inner_folds, inner_exposure = [], []
-        for inner_start in pd.date_range(pd.Timestamp("2021-07-01", tz="UTC"), start, freq="6MS", inclusive="left"):
-            tr = train.loc[train.time + pd.Timedelta(days=17) < inner_start]
-            va = train.loc[(train.time >= inner_start) & (train.time < inner_start + pd.DateOffset(months=6))]
+        for inner_date in pd.date_range(pd.Timestamp(inner_start, tz="UTC"), start, freq="6MS", inclusive="left"):
+            tr = train.loc[train.time + pd.Timedelta(days=17) < inner_date]
+            va = train.loc[(train.time >= inner_date) & (train.time < inner_date + pd.DateOffset(months=6))]
             if len(tr) >= 30 and not va.empty:
                 inner_folds.append((tr, va))
-                inner_exposure.append(exposure_range(inner_start, inner_start + pd.DateOffset(months=6), inner_cap))
+                inner_exposure.append(exposure_range(inner_date, inner_date + pd.DateOffset(months=6), inner_cap))
         record["inner_exposure"] = inner_exposure
         record["inner_exposure_days"] = sum(r["days"] for r in inner_exposure)
         fast_inner=[(va,forecast_prob(tr,va,H1A_MODELS["M2"],1.)) for tr,va in inner_folds] if fast else []
@@ -2335,6 +2347,471 @@ def core5_research_run(raw: pd.DataFrame, readiness: dict, args) -> None:
 
 
 
+# Regime forecasting v2: historical DEV only, 2020 training warmup and four
+# calendar years (2021-2024) of expanding, purged six-month outer evaluations.
+REGIME_FEATURES = H1A_MODELS["M2"] + [
+    "r1", "q", "z5", "er5", "body_atr", "range_atr", "close_location", "funding3"]
+REGIME_HORIZON = 7
+REGIME_CONFIRM = 5
+REGIME_GAP = REGIME_HORIZON + REGIME_CONFIRM
+REGIME_THRESHOLDS = (.1, .2, .35, .5, .65, .8, .9)
+
+
+def regime_features(d: pd.DataFrame) -> pd.DataFrame:
+    """Completed daily observations only; no fitted transform or future data."""
+    d = d.copy()
+    d["z5"] = d.r5 / np.sqrt(d.r1.pow(2).rolling(5).sum() + 1e-12)
+    d["er5"] = d.r5.abs() / (d.r1.abs().rolling(5).sum() + 1e-12)
+    d["body_atr"] = (d.close-d.open) / d.atr.clip(lower=1e-12)
+    d["range_atr"] = (d.high-d.low) / d.atr.clip(lower=1e-12)
+    d["close_location"] = (2*d.close-d.high-d.low)/(d.high-d.low).clip(lower=1e-12)
+    return d
+
+
+def regime_labels(d: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """All q crossings, including reversals; 3/5 future days must retain q.
+
+    The old q state definition is unchanged. Failed crossings remain in the
+    event archive and are negatives for forecasting. Origins may have any
+    current q, but cannot forecast an onset into their already-current state.
+    Overlapping warnings are not independent events. No 10-day neutral filter.
+    """
+    d = d.copy().reset_index(drop=True)
+    q = d.q.to_numpy(float)
+    crossing = np.flatnonzero(np.isfinite(q[1:]) & np.isfinite(q[:-1]) &
+                             (q[1:] != 0) & (q[1:] != q[:-1]))+1
+    records = []
+    for i in crossing:
+        future = q[i+1:i+REGIME_CONFIRM+1]
+        mature = len(future) == REGIME_CONFIRM and np.isfinite(future).all()
+        confirmed = mature and np.count_nonzero(future == q[i]) >= 3
+        records.append({"onset_i": int(i), "onset_time": d.time.iloc[i], "side": int(q[i]),
+                        "confirmation_time": d.time.iloc[i+REGIME_CONFIRM] if mature else pd.NaT,
+                        "status": "CONFIRMED" if confirmed else "UNCONFIRMED" if mature else "CENSORED"})
+    events = pd.DataFrame(records, columns=["onset_i", "onset_time", "side", "confirmation_time", "status"])
+    d["y"] = np.nan
+    d["target_onset"] = pd.Series(pd.NaT, index=d.index, dtype="datetime64[ns, UTC]")
+    d["target_confirmation"] = pd.Series(pd.NaT, index=d.index, dtype="datetime64[ns, UTC]")
+    d["maturity_time"] = d.time + pd.Timedelta(days=REGIME_GAP)
+    if len(q) <= REGIME_GAP:
+        return d, events
+    windows = np.lib.stride_tricks.sliding_window_view(q, REGIME_GAP+1)
+    origins = np.flatnonzero(np.isfinite(windows).all(axis=1))
+    d.loc[origins, "y"] = 0.
+    chosen = np.full(len(origins), len(d), dtype=int)
+    chosen_side = np.zeros(len(origins), dtype=int)
+    for side in (1, -1):
+        candidates = events.loc[events.status.eq("CONFIRMED") & events.side.eq(side), "onset_i"].to_numpy(int)
+        if not len(candidates):
+            continue
+        next_pos = np.searchsorted(candidates, origins, side="right")
+        upcoming = candidates[np.minimum(next_pos, len(candidates)-1)]
+        valid = ((next_pos < len(candidates)) & (upcoming <= origins+REGIME_HORIZON) &
+                 (q[origins] != side) & (upcoming < chosen))
+        chosen[valid], chosen_side[valid] = upcoming[valid], side
+    hit = chosen < len(d)
+    d.loc[origins[hit], "y"] = chosen_side[hit]
+    d.loc[origins[hit], "target_onset"] = d.time.iloc[chosen[hit]].to_numpy()
+    d.loc[origins[hit], "target_confirmation"] = d.time.iloc[chosen[hit]+REGIME_CONFIRM].to_numpy()
+    return d, events
+
+
+def regime_splits(d: pd.DataFrame, start: pd.Timestamp) -> tuple[pd.DataFrame, ...]:
+    """Six-month validation: first half stopping, second calibration/policy.
+
+    Fixed 12-day label information window plus one-day embargo at EVERY boundary.
+    No random split. Strict legacy labels instead retain their 17-day window.
+    """
+    stop_start, cal_start = start-pd.DateOffset(months=6), start-pd.DateOffset(months=3)
+    feature_ok = np.isfinite(d[REGIME_FEATURES]).all(axis=1) & d.forecast_eligible
+    eligible = d.y.notna() & feature_ok
+    mature = d.maturity_time + pd.Timedelta(days=1)
+    train = d.loc[eligible & (mature < stop_start)]
+    stopping = d.loc[eligible & (d.time >= stop_start) & (mature < cal_start)]
+    calibration = d.loc[eligible & (d.time >= cal_start) & (mature < start)]
+    test = d.loc[feature_ok & (d.time >= start) & (d.time < start+pd.DateOffset(months=6))]
+    return train, stopping, calibration, test
+
+
+def _regime_weights(rows: pd.DataFrame, y: np.ndarray) -> np.ndarray:
+    """Train-only capped sqrt class weights and inverse positive-event multiplicity."""
+    counts = np.bincount(y, minlength=2).clip(min=1)
+    w = np.minimum(3., np.sqrt(len(y)/(2*counts[y])))
+    event = rows.target_onset.notna()
+    if event.any():
+        multiplicity = rows.loc[event, "target_onset"].map(rows.loc[event, "target_onset"].value_counts())
+        w[event.to_numpy()] /= multiplicity.to_numpy(float)
+    return w / w.mean()
+
+
+def regime_probabilities(train: pd.DataFrame, stopping: pd.DataFrame,
+                         calibration: pd.DataFrame, test: pd.DataFrame,
+                         kind: str, threads: int = 1) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Factorized event/direction with sklearn sigmoid calibration on later data.
+
+    Early stopping uses an earlier, separate validation segment. Refit retains
+    the chosen tree count; calibration never fits on training or outer labels.
+    """
+    from scipy.special import logit
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from threadpoolctl import threadpool_limits
+    from xgboost import XGBClassifier
+    started = time.perf_counter()
+    refit = pd.concat([train, stopping]).sort_values("time")
+    info = {"training_seconds": 0., "inference_seconds": 0., "calibration_seconds": 0., "heads": {}}
+    if kind == "no_event":
+        return np.tile([1., 0., 0.], (len(calibration), 1)), np.tile([1., 0., 0.], (len(test), 1)), info
+    if kind == "prior":
+        prior = (np.array([refit.y.eq(k).sum() for k in H1A_CLASSES])+1)/(len(refit)+3)
+        return np.tile(prior, (len(calibration), 1)), np.tile(prior, (len(test), 1)), info
+    outputs = []
+    for head in ("event", "direction"):
+        tr = train if head == "event" else train.loc[train.y.ne(0)]
+        va = stopping if head == "event" else stopping.loc[stopping.y.ne(0)]
+        fit = refit if head == "event" else refit.loc[refit.y.ne(0)]
+        ca = calibration if head == "event" else calibration.loc[calibration.y.ne(0)]
+        target = (lambda r: r.y.ne(0).to_numpy(int)) if head == "event" else (lambda r: r.y.eq(1).to_numpy(int))
+        def constant(rows, p):
+            return np.full(len(rows), p)
+        ts = time.perf_counter()
+        detail = {"fit_rows": len(fit), "fit_class_counts": np.bincount(target(fit), minlength=2).tolist()}
+        if len(fit) < 20 or len(np.unique(target(fit))) < 2:
+            prior = (target(fit).sum()+1)/(len(fit)+2)
+            predict = lambda rows, prior=prior: constant(rows, prior)
+            detail["fallback"] = "smoothed training prior"
+        elif kind == "logistic":
+            model = make_pipeline(StandardScaler(), LogisticRegression(C=1., max_iter=200, solver="lbfgs"))
+            with threadpool_limits(limits=1):
+                model.fit(fit[REGIME_FEATURES].to_numpy(), target(fit),
+                          logisticregression__sample_weight=_regime_weights(fit, target(fit)))
+            predict = lambda rows: model.predict_proba(rows[REGIME_FEATURES].to_numpy())[:, 1]
+        else:
+            params = dict(tree_method="hist", device="cpu", n_jobs=threads, max_depth=2,
+                          min_child_weight=10., learning_rate=.05, reg_lambda=10., reg_alpha=.1,
+                          gamma=.1, subsample=.8, colsample_bytree=.8, max_bin=64,
+                          random_state=SEED, eval_metric="logloss")
+            rounds = 64
+            if len(tr) >= 20 and len(np.unique(target(tr))) == 2 and len(va) >= 5:
+                probe = XGBClassifier(**params, n_estimators=256, early_stopping_rounds=20)
+                probe.fit(tr[REGIME_FEATURES].to_numpy(np.float32), target(tr),
+                          sample_weight=_regime_weights(tr, target(tr)),
+                          eval_set=[(va[REGIME_FEATURES].to_numpy(np.float32), target(va))], verbose=False)
+                rounds = probe.best_iteration+1
+                detail["stopping_log_loss"] = float(probe.best_score)
+            model = XGBClassifier(**params, n_estimators=rounds)
+            model.fit(fit[REGIME_FEATURES].to_numpy(np.float32), target(fit),
+                      sample_weight=_regime_weights(fit, target(fit)))
+            predict = lambda rows: model.predict_proba(rows[REGIME_FEATURES].to_numpy(np.float32))[:, 1]
+            detail["rounds"] = rounds
+        info["training_seconds"] += time.perf_counter()-ts
+        ts = time.perf_counter()
+        pc = predict(calibration) if len(calibration) else np.empty(0)
+        pt = predict(test) if len(test) else np.empty(0)
+        pf = predict(fit)
+        info["inference_seconds"] += time.perf_counter()-ts
+        from sklearn.metrics import log_loss
+        detail["in_sample_log_loss"] = float(log_loss(target(fit), np.clip(pf, 1e-7, 1-1e-7), labels=[0, 1])) if len(fit) else None
+        ts = time.perf_counter()
+        mask = np.ones(len(calibration), bool) if head == "event" else calibration.y.ne(0).to_numpy()
+        cy = target(ca)
+        if len(cy) and np.bincount(cy, minlength=2).min() >= 5:
+            scaler = LogisticRegression(C=1., solver="lbfgs")
+            scaler.fit(logit(np.clip(pc[mask], 1e-6, 1-1e-6))[:, None], cy)
+            detail["calibration"] = "sigmoid; independent later validation segment"
+            detail["calibration_raw_log_loss"] = float(log_loss(cy, pc[mask], labels=[0, 1]))
+            pc = scaler.predict_proba(logit(np.clip(pc, 1e-6, 1-1e-6))[:, None])[:, 1]
+            if len(pt):
+                pt = scaler.predict_proba(logit(np.clip(pt, 1e-6, 1-1e-6))[:, None])[:, 1]
+        else:
+            detail["calibration"] = "identity: fewer than 5 observations in a calibration class"
+        if len(cy):
+            detail["calibration_log_loss"] = float(log_loss(cy, np.clip(pc[mask], 1e-7, 1-1e-7), labels=[0, 1]))
+        info["calibration_seconds"] += time.perf_counter()-ts
+        info["heads"][head] = detail
+        outputs.append((pc, pt))
+    def joint(event, direction):
+        return np.column_stack([1-event, event*direction, event*(1-direction)])
+    info["total_seconds"] = time.perf_counter()-started
+    return joint(outputs[0][0], outputs[1][0]), joint(outputs[0][1], outputs[1][1]), info
+
+
+def regime_alarm_archive(rows: pd.DataFrame, p: np.ndarray, thresholds,
+                         events: pd.DataFrame) -> tuple[list[dict], pd.DataFrame]:
+    """Strict pre-onset, correct direction, one alarm per 7 days, one-to-one hits.
+
+    Already matched events cannot validate a second alarm. Thresholds come only
+    from preceding calibration data; NaN means an explicitly disabled policy.
+    """
+    confirmed = events.loc[events.status.eq("CONFIRMED")].sort_values("onset_time")
+    times = pd.DatetimeIndex(rows.time).as_unit("ns").asi8
+    q = rows.q.to_numpy()
+    scoreable = []
+    for event in confirmed.itertuples():
+        lo = np.searchsorted(times, event.onset_time.value-pd.Timedelta(days=7).value)
+        hi = np.searchsorted(times, event.onset_time.value, side="left")
+        if np.any(q[lo:hi] != event.side):
+            scoreable.append(event.onset_i)
+    opportunity = confirmed.loc[confirmed.onset_i.isin(scoreable)].copy()
+    allowed = p[:, 1:].copy()
+    allowed[q == 1, 0] = -1.
+    allowed[q == -1, 1] = -1.
+    direction = np.argmax(allowed, axis=1)
+    scores = allowed[np.arange(len(rows)), direction]
+    limits = np.broadcast_to(np.asarray(thresholds, float), len(rows))
+    selected = np.flatnonzero(np.isfinite(limits) & (scores >= limits))
+    used, archive, last = set(), [], None
+    for i in selected:
+        when, side = rows.time.iloc[i], (1 if direction[i] == 0 else -1)
+        if last is not None and when < last+pd.Timedelta(days=7):
+            continue
+        last = when
+        # Labels name the FIRST future onset into a different current state.
+        # Do not skip a wrong-direction/already-used first event to claim a
+        # later convenient event in the same warning window.
+        candidates = opportunity.loc[opportunity.side.ne(q[i]) & opportunity.onset_time.gt(when) &
+                                    opportunity.onset_time.le(when+pd.Timedelta(days=7))]
+        event = None if candidates.empty else candidates.iloc[0]
+        if event is not None and (event.side != side or int(event.onset_i) in used):
+            event = None
+        key = None if event is None else int(event.onset_i)
+        if key is not None:
+            used.add(key)
+        archive.append({"time": str(when), "side": side, "score": float(scores[i]), "event_id": key,
+                        "onset_time": None if event is None else str(event.onset_time),
+                        "lead_days": None if event is None else int((event.onset_time-when).days)})
+    return archive, opportunity
+
+
+def regime_thresholds(rows: pd.DataFrame, p: np.ndarray, events: pd.DataFrame) -> dict:
+    """Two declared operating points; no thresholds are selected on outer tests."""
+    options = []
+    for threshold in REGIME_THRESHOLDS:
+        alarms, opportunities = regime_alarm_archive(rows, p, threshold, events)
+        n, hit = len(alarms), sum(a["event_id"] is not None for a in alarms)
+        precision, recall = hit/max(n, 1), hit/max(len(opportunities), 1)
+        options.append((threshold, n, precision, recall, 2*precision*recall/max(precision+recall, 1e-12)))
+    balanced = [r for r in options if r[1] >= 3]
+    high = [r for r in options if r[1] >= 5 and r[2] >= .8]
+    return {"balanced": max(balanced, key=lambda r: (r[4], r[2], r[0]))[0] if balanced else None,
+            "precision80": max(high, key=lambda r: (r[3], r[2], r[0]))[0] if high else None}
+
+
+def regime_event_intervals(rows: pd.DataFrame, alarms: list[dict], events: pd.DataFrame) -> dict:
+    """Calendar block bootstrap envelopes (28/56/84d), never IID warning rows."""
+    if rows.empty:
+        return {}
+    end = max(rows.time.max(), events.onset_time.max()) if len(events) else rows.time.max()
+    calendar = pd.date_range(rows.time.min(), end, freq="D")
+    values = np.zeros((len(calendar), 6))
+    def day(t):
+        return int((pd.Timestamp(t)-calendar[0]).days)
+    matched = {a["event_id"] for a in alarms if a["event_id"] is not None}
+    for a in alarms:
+        j = day(a["time"])
+        values[j, :2] += [a["event_id"] is not None, 1]
+    for e in events.itertuples():
+        values[day(e.onset_time), 2:4] += [e.onset_i in matched, 1]
+    for t in rows.time:
+        values[day(t), 4] += 1
+    n = len(values)
+    prefix = np.vstack([np.zeros(6), np.cumsum(np.concatenate([values, values]), axis=0)])
+    output = {k: [] for k in ("precision", "recall", "coverage")}
+    for starts, requested in zip(_calendar_block_starts(n), (28, 56, 84)):
+        length = min(requested, n)
+        lengths = np.full(starts.shape[1], length)
+        lengths[-1] = n-(starts.shape[1]-1)*length
+        sums = (prefix[starts+lengths]-prefix[starts]).sum(axis=1)
+        for label, numerator, denominator in (("precision", 0, 1), ("recall", 2, 3), ("coverage", 1, 4)):
+            good = sums[:, denominator] > 0
+            stat = sums[good, numerator]/sums[good, denominator]
+            ci = np.quantile(stat, [.025, .975]).tolist() if len(stat) >= 900 else [None, None]
+            output[label].append({"block_days": length, "ci95": ci, "valid_draws": len(stat)})
+    return {k: {"ci95": [min(r["ci95"][0] for r in v), max(r["ci95"][1] for r in v)]
+                        if all(r["ci95"][0] is not None for r in v) else [None, None],
+                "sensitivity": v} for k, v in output.items()}
+
+
+def regime_metrics(rows: pd.DataFrame, p: np.ndarray, thresholds, events: pd.DataFrame,
+                   *, intervals: bool = True, exposure_days: int | None = None) -> dict:
+    from sklearn.metrics import f1_score, confusion_matrix, average_precision_score
+    mature = rows.y.notna().to_numpy()
+    censored = int((~mature).sum())
+    thresholds = np.broadcast_to(np.asarray(thresholds, float), len(rows))[mature]
+    rows, p = rows.loc[mature].reset_index(drop=True), p[mature]
+    if rows.empty:
+        return {"N": 0}
+    archive, opportunity = regime_alarm_archive(rows, p, thresholds, events)
+    hits = sum(a["event_id"] is not None for a in archive)
+    cm = confusion_matrix(rows.y, H1A_CLASSES[p.argmax(axis=1)], labels=H1A_CLASSES)
+    recalls = np.divide(cm.diagonal(), cm.sum(axis=1), out=np.zeros(3), where=cm.sum(axis=1)>0)
+    brier, ll = forecast_losses(rows.y, p)
+    days = exposure_days if exposure_days is not None else (rows.time.max()-rows.time.min()).days+1
+    leads = [a["lead_days"] for a in archive if a["event_id"] is not None]
+    out = {"N": len(rows), "censored_forecasts": censored, "target_counts": {str(k): int(rows.y.eq(k).sum()) for k in H1A_CLASSES},
+           "accuracy": float(np.trace(cm)/len(rows)), "macro_F1": float(f1_score(rows.y, H1A_CLASSES[p.argmax(axis=1)], labels=H1A_CLASSES, average="macro", zero_division=0)),
+           "balanced_accuracy": float(recalls.mean()), "class_recall": recalls.tolist(), "confusion_matrix": cm.tolist(),
+           "brier": float(brier.mean()), "log_loss": float(ll.mean()),
+           "event_AP": float(average_precision_score(rows.y.ne(0), p[:, 1:].sum(axis=1))) if rows.y.ne(0).any() else None,
+           "scoreable_events": len(opportunity), "scoreable_up": int(opportunity.side.eq(1).sum()),
+           "scoreable_down": int(opportunity.side.eq(-1).sum()), "alarms": len(archive), "detected_events": hits,
+           "precision": hits/len(archive) if archive else None, "recall": hits/len(opportunity) if len(opportunity) else None,
+           "coverage": len(archive)/len(rows), "exposure_days": days, "false_alarms": len(archive)-hits,
+           "false_alarms_per_year": (len(archive)-hits)*365.25/days,
+           "median_lead_days": float(np.median(leads)) if leads else None,
+           "intervals": regime_event_intervals(rows, archive, opportunity) if intervals else {},
+           "alarm_archive": archive}
+    return out
+
+
+def regime_walk_forward(d: pd.DataFrame, events: pd.DataFrame, threads: int) -> tuple[pd.DataFrame, dict]:
+    """One fixed capacity; eight outer folds, independent stopping/calibration."""
+    predictions, folds = [], []
+    for start in pd.date_range("2021-01-01", DEV_END, freq="6MS", inclusive="left", tz="UTC"):
+        tr, va, ca, te = regime_splits(d, start)
+        if te.empty or len(tr) < 30:
+            raise ValueError(f"Insufficient chronological history at {start}; no silently omitted fold")
+        record = {"start": str(start), "train_N": len(tr), "stopping_N": len(va), "calibration_N": len(ca), "test_N": len(te), "test_censored_N": int(te.y.isna().sum()),
+                  "train_latest_maturity": str(tr.maturity_time.max()),
+                  "stopping_start": str(va.time.min()), "stopping_latest_maturity": str(va.maturity_time.max()),
+                  "calibration_start": str(ca.time.min()), "calibration_latest_maturity": str(ca.maturity_time.max()), "models": {}}
+        for name in ("no_event", "prior", "logistic", "xgb"):
+            pc, pt, fit_info = regime_probabilities(tr, va, ca, te, name, threads)
+            policy_started = time.perf_counter()
+            thresholds = {"balanced": None, "precision80": None} if name == "no_event" else regime_thresholds(ca, pc, events)
+            fit_info["policy_selection_seconds"] = time.perf_counter()-policy_started
+            part = te[["time", "q", "y", "maturity_time", "target_onset"]].copy()
+            part["fold"], part["model"] = str(start.date()), name
+            part[["none", "up", "down"]] = pt
+            for policy, threshold in thresholds.items():
+                part[policy] = np.nan if threshold is None else threshold
+            record["models"][name] = {**fit_info, "thresholds": thresholds}
+            predictions.append(part)
+        folds.append(record)
+    forecasts = pd.concat(predictions, ignore_index=True)
+    gap = (d.maturity_time-d.time).iloc[0]
+    calendar_end = min(pd.Timestamp(DEV_END, tz="UTC"), d.time.max()-gap+pd.Timedelta(days=1))
+    exposure = (calendar_end-pd.Timestamp("2021-01-01", tz="UTC")).days
+    results = {}
+    for name, group in forecasts.groupby("model", sort=False):
+        group = group.sort_values("time").reset_index(drop=True)
+        p = group[["none", "up", "down"]].to_numpy()
+        results[name] = {policy: regime_metrics(group, p, group[policy].to_numpy(), events, exposure_days=exposure)
+                         for policy in ("balanced", "precision80")}
+        results[name]["by_year"] = {}
+        for year, yearly in group.groupby(group.time.dt.year):
+            yp = yearly[["none", "up", "down"]].to_numpy()
+            year_start = pd.Timestamp(f"{year}-01-01", tz="UTC")
+            year_end = min(calendar_end, pd.Timestamp(f"{year+1}-01-01", tz="UTC"))
+            results[name]["by_year"][str(year)] = regime_metrics(yearly, yp, yearly.balanced.to_numpy(), events, intervals=False, exposure_days=(year_end-year_start).days)
+    return forecasts, {"folds": folds, "models": results}
+
+
+def regime_research_run(x: pd.DataFrame, readiness: dict, args) -> None:
+    """Frozen exploratory protocol; never accesses 2025+ or trades on future labels."""
+    import sklearn
+    import xgboost
+    if (x.time >= pd.Timestamp(DEV_END, tz="UTC")).any():
+        raise ValueError("Regime research cannot access sealed 2025+ observations")
+    started = time.perf_counter()
+    specification = {"study": "ONEFILE-REGIME-XGB-DEV-V1", "input_window": [DEV_START, DEV_END],
+                     "evaluation": ["2021-01-01", DEV_END], "features": REGIME_FEATURES,
+                     "event": "q crossing including reversal; >=3 of next5 q retain direction; failed crossings negative",
+                     "target": "first confirmed onset within next1..7 days, different from current q",
+                     "legacy": "unchanged neutral>=10d and >=8/10 confirmation; four-year extension starts2021",
+                     "purge": "fixed target information window12d(new)/17d(legacy), plus1d embargo",
+                     "folds": "expanding fit, separate preceding3mo stopping +3mo calibration/policy, six-month tests",
+                     "capacity": "XGB hist CPU depth2 child10 eta.05 L2=10 L1=.1 gamma.1 bins64 subsample.8 columns.8; <=256 rounds,20 earlystop",
+                     "imbalance": "capped sqrt train-only class weights; inverse event multiplicity; sigmoid calibration, >=5 per class else identity",
+                     "thresholds": list(REGIME_THRESHOLDS), "policies": {"balanced": "max calibration eventF1 with>=3alarms", "precision80": "max calibration recall with precision>=.8 and>=5alarms; otherwise disabled"},
+                     "matching": "strict signed lead1..7d, 7d alarm cooldown across folds; one-to-one",
+                     "coverage": "emitted alarms / eligible mature forecast origins; recall covers every scoreable confirmed event",
+                     "CI": "1000 circular calendar-block draws at28/56/84d; widest95% envelope",
+                     "trial_status": "definition chosen after previous DEV findings; historical exploratory, never fresh holdout",
+                     "success_gate": "precision CI lower>=.8, recall CI lower>=.3, >=50alarms,>=30events,>=12 28d event clusters, positive paired Brier gain CI in>=3years; otherwise NO_EDGE",
+                     "sealed_data_used": False, "trading_PnL": "not measured; forecasting evaluation only"}
+    identity = {"specification": specification, "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                "input_sha256": readiness["file_sha256"], "threads": args.xgb_threads,
+                "versions": {"numpy": np.__version__, "pandas": pd.__version__, "sklearn": sklearn.__version__, "xgboost": xgboost.__version__}}
+    path = Path(args.protocol)
+    if path.exists():
+        if json.loads(path.read_text())["identity"] != identity:
+            raise ValueError("Regime protocol/code/data mismatch; retain prior attempt and choose a new protocol path")
+    else:
+        atomic_write(path, lambda f: f.write(json.dumps({"identity": identity, "frozen_at_utc": pd.Timestamp.now(tz="UTC").isoformat()}, indent=2)+"\n"))
+    ts = time.perf_counter()
+    daily = daily_market(x)
+    timings = {"daily_features_seconds": time.perf_counter()-ts}
+    ts = time.perf_counter()
+    enriched = regime_features(daily)
+    timings["extra_features_seconds"] = time.perf_counter()-ts
+    timings["features_seconds"] = timings["daily_features_seconds"]+timings["extra_features_seconds"]
+    ts = time.perf_counter()
+    strict, strict_events = onset_labels(enriched)
+    strict["maturity_time"] = strict.time+pd.Timedelta(days=17)
+    strict["forecast_eligible"] = strict.risk
+    expanded, expanded_events = regime_labels(enriched)
+    expanded["forecast_eligible"] = expanded.q.notna()
+    timings["labels_seconds"] = time.perf_counter()-ts
+    ts = time.perf_counter()
+    old_stage = {key: _PERF_TIMINGS.get("h1a."+key, {}).get("total_seconds", 0.) for key in ("training_seconds", "inference_seconds")}
+    legacy_forecasts, legacy_result = h1a_experiment(strict, strict_events, evaluation_start="2021-01-01", inner_start="2020-07-01")
+    timings["legacy_original_seconds"] = time.perf_counter()-ts
+    for key, before in old_stage.items():
+        timings["legacy_"+key] = _PERF_TIMINGS.get("h1a."+key, {}).get("total_seconds", 0.)-before
+    scored = legacy_forecasts.loc[legacy_forecasts.y.notna()].merge(daily[["time", "q"]], on="time").sort_values("time")
+    legacy_metric = regime_metrics(scored, scored[[f"M2_{k}" for k in ("none", "up", "down")]].to_numpy(), scored.M2_threshold.to_numpy(), strict_events, exposure_days=legacy_result["exposure_days"])
+    runs, summaries = {}, {}
+    for task, frame, events in (("strict", strict, strict_events), ("expanded", expanded, expanded_events)):
+        ts = time.perf_counter()
+        runs[task], summaries[task] = regime_walk_forward(frame, events, args.xgb_threads)
+        timings[task+"_walk_forward_seconds"] = time.perf_counter()-ts
+    paired = runs["expanded"].loc[runs["expanded"].y.notna()].pivot(index="time", columns="model", values=["none", "up", "down"])
+    y = runs["expanded"].loc[runs["expanded"].model.eq("xgb"), ["time", "y"]].set_index("time").reindex(paired.index).y
+    losses = pd.DataFrame({"time": paired.index})
+    for model in ("prior", "logistic", "xgb"):
+        pp = np.column_stack([paired[(k, model)].to_numpy() for k in ("none", "up", "down")])
+        losses[model] = forecast_losses(y.to_numpy(), pp)[0]
+    gains = {}
+    for model in ("prior", "logistic"):
+        losses["gain"] = losses[model]-losses.xgb
+        gains[model] = block_interval(losses, ["gain"])
+    chosen = summaries["expanded"]["models"]["xgb"]["precision80"]
+    ci_p = chosen["intervals"]["precision"]["ci95"][0]
+    ci_r = chosen["intervals"]["recall"]["ci95"][0]
+    opportunities = expanded_events.loc[expanded_events.status.eq("CONFIRMED") & expanded_events.onset_time.ge(pd.Timestamp("2021-01-01", tz="UTC"))]
+    clusters = opportunities.onset_time.dt.floor("28D").nunique()
+    annual_positive = 0
+    for _, group in losses.groupby(losses.time.dt.year):
+        g = group.assign(gain=group.logistic-group.xgb)
+        ci = block_interval(g, ["gain"])["ci95"]
+        annual_positive += ci[0] is not None and ci[0] > 0
+    passed = (chosen["alarms"] >= 50 and chosen["scoreable_events"] >= 30 and clusters >= 12 and
+              ci_p is not None and ci_p >= .8 and ci_r is not None and ci_r >= .3 and
+              gains["logistic"]["ci95"][0] > 0 and annual_positive >= 3)
+    result = {"identity": identity, "readiness": readiness, "legacy_original": {"metrics": legacy_metric, "result": legacy_result},
+              "comparisons": summaries, "paired_brier_gain": gains, "positive_years_with_CI": annual_positive,
+              "event_clusters_28d": clusters, "timings": timings, "verdict": "PROMISING_EXPLORATORY_REQUIRES_INDEPENDENT_VALIDATION" if passed else "NO_EDGE",
+              "independent_validation": False, "sealed_data_used": False, "economic_edge_tested": False}
+    # Retain both failures and censored events, as well as every mature forecast.
+    output = pd.concat([f.assign(task=k) for k, f in runs.items()], ignore_index=True)
+    legacy_export = legacy_forecasts.merge(daily[["time", "q"]], on="time").rename(
+        columns={"label_maturity_time": "maturity_time", "M2_none": "none", "M2_up": "up", "M2_down": "down", "M2_threshold": "balanced"})
+    legacy_export["model"], legacy_export["task"], legacy_export["precision80"] = "legacy_original", "strict", np.nan
+    output = pd.concat([output, legacy_export[output.columns]], ignore_index=True)
+    event_output = pd.concat([strict_events.assign(task="strict"), expanded_events.assign(task="expanded")], ignore_index=True)
+    atomic_write(Path(args.forecasts), lambda f: output.to_csv(f, index=False))
+    atomic_write(Path(args.onsets), lambda f: event_output.to_csv(f, index=False))
+    atomic_write(Path(args.out), lambda f: expanded.to_csv(f, index=False))
+    result["timings"]["total_research_seconds"] = time.perf_counter()-started
+    result["outputs_sha256"] = {str(p): hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in (args.protocol, args.forecasts, args.onsets, args.out)}
+    atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(result, indent=2, allow_nan=False)+"\n"))
+    _PERF_CONTEXT["regime_timings"] = result["timings"]
+    print(json.dumps({"verdict": result["verdict"], "legacy": legacy_metric,
+                      "expanded_xgb": summaries["expanded"]["models"]["xgb"], "timings": result["timings"]}, indent=2))
+
+
 # Per-invocation performance evidence (kept separate from scientific evidence).
 _PERF_TIMINGS: dict[str, dict] = {}
 _PERF_CONTEXT: dict = {}
@@ -2595,6 +3072,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--behavior", action="store_true", help="Run Stage 02 conditional market behavior matrix")
     parser.add_argument("--research", action="store_true", help="Run locked BTC DEV market study + nested H1-A feasibility, not H1-A trades")
     parser.add_argument("--multi-research", action="store_true", help="Run historical core-5 H1-A/B/C, funding and 3R/5R studies; never opens sealed data")
+    parser.add_argument("--regime-research", action="store_true", help="Four-year DEV-only XGBoost regime forecasts and original H1-A comparison")
+    parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
     parser.add_argument("--forecasts", default=None)
     parser.add_argument("--onsets", default=None)
@@ -2608,6 +3087,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="Output individual observations (default depends on study)")
     parser.add_argument("--evidence", default=None, help="Run metadata and native execution audit")
     args = parser.parse_args(argv)
+    if args.xgb_threads < 1:
+        parser.error("--xgb-threads must be positive")
+    if args.regime_research and (args.research or args.multi_research or args.unlock_oos or args.behavior or args.target_r != TARGET_R):
+        parser.error("--regime-research is a separate DEV-only study; sealed OOS cannot be opened")
     args.multi_research = args.multi_research
     if args.research and args.multi_research:
         parser.error("--research and --multi-research are separate frozen studies")
@@ -2621,6 +3104,16 @@ def main(argv: list[str] | None = None) -> None:
     args.funding_forecasts = args.funding_forecasts or "core5_funding_forecasts.csv"
     args.out = args.out or ("core5_market_observations.csv" if args.multi_research else ("market_observations.csv" if args.research else "brick1_trades.csv"))
     args.evidence = args.evidence or ("core5_research_evidence.json" if args.multi_research else ("research_evidence.json" if args.research else "brick1_evidence.json"))
+    if args.regime_research:
+        # Use distinct defaults; never overwrite the frozen original evidence.
+        supplied = sys.argv[1:] if argv is None else argv
+        for option, attr, default in (("--protocol", "protocol", "regime_protocol.json"),
+                                      ("--forecasts", "forecasts", "regime_forecasts.csv"),
+                                      ("--onsets", "onsets", "regime_onsets.csv"),
+                                      ("--out", "out", "regime_daily.csv"),
+                                      ("--evidence", "evidence", "regime_evidence.json")):
+            if not any(a == option or a.startswith(option+"=") for a in supplied):
+                setattr(args, attr, default)
     if args.research and (args.unlock_oos or args.behavior or args.target_r != TARGET_R):
         parser.error("--research is frozen DEV only; no --unlock-oos, --behavior or alternate --target-r")
     if not np.isfinite(args.target_r) or args.target_r <= 0:
@@ -2638,7 +3131,7 @@ def main(argv: list[str] | None = None) -> None:
     file = Path(args.csv)
     try:
         extra = {}
-        if args.research or args.multi_research:
+        if args.research or args.multi_research or args.regime_research:
             extra.update({"--protocol":Path(args.protocol),"--forecasts":Path(args.forecasts),"--onsets":Path(args.onsets)})
         if args.multi_research:
             extra.update({"--h1b-events":Path(args.h1b_events),"--h1c-forecasts":Path(args.h1c_forecasts),
@@ -2655,6 +3148,8 @@ def main(argv: list[str] | None = None) -> None:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
         _PERF_CONTEXT.update({"input_sha256": file_hash, "input_path": str(file), "study_mode": "core5" if args.multi_research else "research" if args.research else "brick1", "unlock_oos": args.unlock_oos, "offline": args.offline, "download": args.download, "behavior": args.behavior, "target_r": args.target_r, "trials": args.trials})
         raw = pd.read_csv(io.BytesIO(file_bytes), float_precision="round_trip")
+        if args.regime_research and (pd.to_datetime(raw.time, utc=True) >= pd.Timestamp(DEV_END, tz="UTC")).any():
+            raise ValueError("Regime input contains sealed 2025+ data; supply historical DEV only")
         if args.multi_research:
             assets, readiness = validate_core5(raw, file, file_hash=file_hash)
             source = {"status":"VERIFIED" if args.download else "UNVERIFIED",
@@ -2675,6 +3170,10 @@ def main(argv: list[str] | None = None) -> None:
         df, readiness = prepare_study(raw, file, start_date=start_date, end_date=end_date,
                                       file_hash=file_hash)
         readiness["funding_source_verification"] = source
+        if args.regime_research:
+            _PERF_CONTEXT["study_mode"] = "regime"
+            regime_research_run(df, readiness, args)
+            return
         if args.research:
             research_run(df, readiness, args)
             return

@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "source_sha256": "9482a3370262c229ef71bc21af0958005d650f677484326a2f4b35218c3ecda3",
+  "input_sha256": "9083e90d4aaab0af67fd1e4fec13658700a984c8839d5ecfab3ee956c17c3ffe",
+  "rows": 9394,
+  "checks": [
+    "protocol/source/output hash identity",
+    "raw and forecast timestamps strictly before 2025",
+    "probability normalization",
+    "positive target lead1..7d",
+    "every chronological boundary purged plus1d embargo",
+    "no duplicated event hits",
+    "first/final common probability rows identical"
+  ],
+  "maximum_prediction_change_from_first_attempt": 0.0,
+  "sealed_data_used": false
+}

@@ -1,0 +1,34 @@
+{
+  "scope": "2020-only CPU runtime benchmark; no outcome-based model selection",
+  "distribution": "xgboost-cpu 3.4.1",
+  "repeats": 3,
+  "code_sha256": "44bbbc117031471621e4f433f0a0e1103a29f1dd8c6647977f5d55186a8e1a3c",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+  "threads": {
+    "1": {
+      "seconds": [
+        0.10792243100013366,
+        0.12259956599996258,
+        0.12449037100009264
+      ],
+      "median_seconds": 0.12259956599996258
+    },
+    "2": {
+      "seconds": [
+        0.13757462600005965,
+        0.1607507319999968,
+        0.14868957099997715
+      ],
+      "median_seconds": 0.14868957099997715
+    },
+    "4": {
+      "seconds": [
+        0.15346913899998071,
+        0.15735411600007865,
+        0.16155892599999788
+      ],
+      "median_seconds": 0.15735411600007865
+    }
+  },
+  "one_vs_four_wall_reduction_percent": 22.086838834326205
+}

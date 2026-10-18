@@ -8,4 +8,6 @@ dependencies = [
     "pandas>=2.2.0",
     "vectorbt>=1.0.0",
     "scikit-learn>=1.6.0",
+    "xgboost-cpu>=3.0,<4; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "xgboost>=3.0,<4; sys_platform != 'linux' or platform_machine != 'x86_64'",
 ]
