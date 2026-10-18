@@ -1286,8 +1286,8 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
     for event_side in (-1, 1):
         subset = confirmed.loc[confirmed.side.eq(event_side)]
         if subset.onset_time.is_monotonic_increasing and subset.onset_time.notna().all():
-            by_side[event_side] = (pd.DatetimeIndex(subset.onset_time).asi8,
-                                   subset.onset_i.to_numpy(dtype=int))
+            by_side[event_side] = (pd.DatetimeIndex(subset.onset_time).as_unit("ns").asi8,
+                                   subset.onset_i.to_numpy(dtype=int), subset.onset_time.tolist())
         else:
             by_side[event_side] = None  # Preserve original order for unusual inputs.
     last = None
@@ -1304,16 +1304,17 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
                                      confirmed.onset_time.gt(row.time) &
                                      confirmed.onset_time.le(row.time + pd.Timedelta(days=7))]
             key = None if matching.empty else int(matching.iloc[0].onset_i)
+            onset_time = None if matching.empty else matching.iloc[0].onset_time
         else:
-            times, onset_ids = indexed
+            times, onset_ids, onset_times = indexed
             next_i = int(np.searchsorted(times, row.time.value, side="right"))
-            key = (int(onset_ids[next_i])
-                   if next_i < len(times) and times[next_i] <= (row.time + pd.Timedelta(days=7)).value
-                   else None)
+            matched = next_i < len(times) and times[next_i] <= (row.time + pd.Timedelta(days=7)).value
+            key = int(onset_ids[next_i]) if matched else None
+            onset_time = onset_times[next_i] if matched else None
         lead_days = None
         if key is not None and key not in detected:
             detected.add(key)
-            lead_days = int((matching.iloc[0].onset_time-row.time).days)
+            lead_days = int((onset_time-row.time).days)
             leads.append(lead_days)
         alarms.append({"time": str(row.time), "side": sign, "matched_onset_i": key, "lead_days": lead_days})
     false = sum(a["matched_onset_i"] is None for a in alarms)
