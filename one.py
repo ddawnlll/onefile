@@ -2822,6 +2822,8 @@ REGIME3_STRUCTURAL = ["rw_up", "rw_down", "need_up", "need_down", "drop_r7", "er
 REGIME3_BASE = REGIME_FEATURES + REGIME3_STRUCTURAL
 REGIME3_BUDGET = 12.  # alarms per asset-year for the fixed-budget policy
 REGIME3_MIN_HISTORY_ALARMS = 10
+REGIME3_FIXED = .70   # declared after 2021-2022 tuning; probability rule, not refit per fold
+REGIME3_POLICIES = ("precision80", "budget", "fixed70")
 # Worker-owned model configs. Changing them must not touch the harness above.
 REGIME3_LOGIT = {"features": REGIME3_BASE, "C": 1., "class_weight": "sqrt"}
 REGIME3_XGB = {"features": REGIME3_BASE, "max_depth": 2, "min_child_weight": 10., "learning_rate": .05,
@@ -2854,11 +2856,44 @@ def regime3_features(d: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
+def regime3_mc(d: pd.DataFrame, paths: int = 400, df: float = 4.) -> tuple[np.ndarray, np.ndarray]:
+    """P(label=up/down) by simulating the EXACT label on known window + Student-t returns.
+
+    Future daily returns ~ rv20(t) * t(df) scaled to unit variance; the observed
+    last 20 returns are fixed. q, crossing, >=3/5 confirmation and 'different
+    from current state' follow regime_labels. Fixed seed; no fitted parameters.
+    """
+    rng = np.random.default_rng(SEED)
+    h, c = REGIME_HORIZON, REGIME_CONFIRM
+    eps = rng.standard_t(df, (paths, h+c))*np.sqrt((df-2)/df)
+    r, sigma, q = d.r1.to_numpy(), d.rv20.to_numpy(), d.q.to_numpy()
+    up, down = np.full(len(d), np.nan), np.full(len(d), np.nan)
+    ends = np.arange(20, 21+h+c)
+    for t in range(19, len(d)):
+        past = r[t-19:t+1]
+        if not (np.isfinite(past).all() and np.isfinite(sigma[t]) and np.isfinite(q[t])):
+            continue
+        path = np.concatenate([np.tile(past, (paths, 1)), sigma[t]*eps], axis=1)
+        cum = [np.cumsum(np.pad(v, ((0, 0), (1, 0))), axis=1) for v in (path, path**2, np.abs(path))]
+        total, square, absolute = [x[:, ends]-x[:, ends-20] for x in cum]
+        z, er = total/np.sqrt(square+1e-12), np.abs(total)/(absolute+1e-12)
+        state = np.where((z >= 1.25) & (er >= .35), 1, np.where((z <= -1.25) & (er >= .35), -1, 0))
+        state[:, 0] = q[t]
+        result = np.zeros(paths)
+        for i in range(1, h+1):
+            onset = (state[:, i] != 0) & (state[:, i] != state[:, i-1]) & (state[:, i] != q[t]) & (result == 0)
+            confirmed = (state[:, i+1:i+c+1] == state[:, [i]]).sum(axis=1) >= 3
+            result[onset & confirmed] = state[onset & confirmed, i]
+        up[t], down[t] = (result == 1).mean(), (result == -1).mean()
+    return up, down
+
+
 def regime3_frame(assets: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-asset daily labels; event ids offset per asset so pooled matching is one-to-one."""
     frames, events = [], []
     for k, (symbol, a) in enumerate(sorted(assets.items())):
         d, e = regime_labels(regime3_features(daily_market(a)))
+        d["mc_up"], d["mc_down"] = regime3_mc(d)
         d["symbol"], e["symbol"] = symbol, symbol
         e["onset_i"] = e.onset_i+100_000*k
         d["event_key"] = np.where(d.target_onset.notna(), symbol+"|"+d.target_onset.astype(str), "")
@@ -2913,6 +2948,11 @@ def regime3_fit(kind: str, train: pd.DataFrame, stopping: pd.DataFrame, calibrat
             total = np.maximum(1., up+down)
             return np.column_stack([1-(up+down)/total, up/total, down/total])
         return structural, info
+    if kind == "mc":
+        def simulated(rows):
+            up, down = rows.mc_up.fillna(0).to_numpy(), rows.mc_down.fillna(0).to_numpy()
+            return np.column_stack([1-up-down, up, down])
+        return simulated, info
     heads = []
     for head in ("event", "direction"):
         pick = (lambda r: r) if head == "event" else (lambda r: r.loc[r.y.ne(0)])
@@ -3066,6 +3106,7 @@ def regime3_walk_forward(d: pd.DataFrame, events: pd.DataFrame, kinds: tuple[str
             part["fold"], part["model"] = str(start.date()), kind
             for policy in ("precision80", "budget"):
                 part[policy] = np.nan if info["policy"][policy] is None else info["policy"][policy]
+            part["fixed70"] = np.nan if kind in ("no_event", "prior") else REGIME3_FIXED
             history[kind].append(part)
             predictions.append(part)
             record["models"][kind] = info
@@ -3123,16 +3164,29 @@ def regime3_report(forecasts: pd.DataFrame, events: pd.DataFrame) -> dict:
     out = {}
     for kind, g in forecasts.groupby("model", sort=False):
         out[kind] = {policy: {k: v for k, v in regime3_metrics(g, events, policy).items() if k != "alarm_archive"}
-                     for policy in ("precision80", "budget")}
-        out[kind]["by_year"] = {str(y): {k: v for k, v in regime3_metrics(yg, events, "precision80").items() if k != "alarm_archive"}
-                                for y, yg in g.groupby(g.time.dt.year)}
-        out[kind]["by_asset"] = {s: {k: v for k, v in regime3_metrics(sg, events, "precision80").items() if k != "alarm_archive"}
-                                 for s, sg in g.groupby("symbol")}
-    base = forecasts.loc[forecasts.model.eq("structural")]
-    for kind in ("logistic", "xgb"):
-        if kind in out and not base.empty:
-            out[kind]["AP_gain_vs_structural"] = regime3_ap_gain(forecasts.loc[forecasts.model.eq(kind)], base)
+                     for policy in REGIME3_POLICIES}
+        for split, key in (("by_year", g.time.dt.year), ("by_asset", g.symbol)):
+            out[kind][split] = {policy: {str(v): {k: x for k, x in regime3_metrics(sg, events, policy).items() if k != "alarm_archive"}
+                                         for v, sg in g.groupby(key)} for policy in REGIME3_POLICIES}
+    for ref in ("structural", "mc"):
+        base = forecasts.loc[forecasts.model.eq(ref)]
+        for kind in ("mc", "logistic", "xgb"):
+            if kind in out and kind != ref and not base.empty:
+                out[kind][f"AP_gain_vs_{ref}"] = regime3_ap_gain(forecasts.loc[forecasts.model.eq(kind)], base)
     return out
+
+
+def regime3_gate(model: dict, policy: str) -> dict:
+    """Pre-registered before any 2023-2024 scoring; all conditions must hold."""
+    pooled, untouched = model[policy], model.get("untouched_2023_2024", {}).get(policy, {})
+    years = [v for v in model["by_year"][policy].values() if v.get("alarms", 0) >= 5]
+    checks = {"precision>=.80": (pooled.get("precision") or 0) >= .8,
+              "wilson_lower>=.70": (pooled["precision_wilson95"][0] or 0) >= .7,
+              "alarms>=40": pooled["alarms"] >= 40, "hit_weeks>=20": pooled["distinct_hit_weeks"] >= 20,
+              "recall>=.10": (pooled.get("recall") or 0) >= .1,
+              "untouched_precision>=.75_with>=15alarms": untouched.get("alarms", 0) >= 15 and (untouched.get("precision") or 0) >= .75,
+              "every_year_precision>=.60": all((v.get("precision") or 0) >= .6 for v in years)}
+    return {"checks": checks, "verdict": "EDGE_80_CANDIDATE" if all(checks.values()) else "NO_EDGE_80"}
 
 
 def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
@@ -3145,6 +3199,13 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
     kinds = tuple(args.regime3_models.split(","))
     forecasts, folds = regime3_walk_forward(d, events, kinds, args.regime3_scope, args.xgb_threads)
     report = regime3_report(forecasts, events)
+    if args.regime3_scope == "final":
+        late = forecasts.time >= pd.Timestamp(REGIME3_TUNE_END, tz="UTC")
+        for kind, model in report.items():
+            g = forecasts.loc[late & forecasts.model.eq(kind)]
+            model["untouched_2023_2024"] = {p: {k: v for k, v in regime3_metrics(g, events, p).items() if k != "alarm_archive"}
+                                            for p in REGIME3_POLICIES}
+            model["gate"] = {p: regime3_gate(model, p) for p in REGIME3_POLICIES}
     result = {"scope": args.regime3_scope, "evaluation": ["2021-01-01", REGIME3_TUNE_END if args.regime3_scope == "tune" else DEV_END],
               "assets": sorted(assets), "configs": {"logistic": REGIME3_LOGIT, "xgb": REGIME3_XGB},
               "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "folds": folds, "models": report,
@@ -3153,7 +3214,7 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
         atomic_write(Path(args.forecasts), lambda f: forecasts.to_csv(f, index=False))
     atomic_write(Path(args.evidence), lambda f: f.write(json.dumps(result, indent=2, default=str)+"\n"))
     brief = {k: {p: {m: v[p].get(m) for m in ("alarms", "hits", "precision", "precision_wilson95", "recall", "scoreable_events", "event_AP")}
-                 for p in ("precision80", "budget")} for k, v in report.items()}
+                 for p in REGIME3_POLICIES} for k, v in report.items()}
     print(json.dumps({"scope": args.regime3_scope, "summary": brief, "runtime_seconds": result["runtime_seconds"]}, indent=2, default=str))
     return result
 
@@ -3421,7 +3482,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--regime-research", action="store_true", help="Four-year DEV-only XGBoost regime forecasts and original H1-A comparison")
     parser.add_argument("--regime3", action="store_true", help="Pooled core-5 DEV regime v3 (shared harness for logistic/XGB)")
     parser.add_argument("--regime3-scope", choices=["tune", "final"], default="tune", help="tune scores 2021-2022 only; final scores 2021-2024")
-    parser.add_argument("--regime3-models", default="no_event,prior,structural,logistic,xgb")
+    parser.add_argument("--regime3-models", default="no_event,prior,structural,mc,logistic,xgb")
     parser.add_argument("--xgb-threads", type=int, default=1, help="XGBoost CPU threads (default 1; small daily dataset)")
     parser.add_argument("--protocol", default=None, help="Immutable pre-score protocol/code/data identity")
     parser.add_argument("--forecasts", default=None)

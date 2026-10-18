@@ -120,5 +120,47 @@ class EventMatchingTests(unittest.TestCase):
         download.assert_not_called()
 
 
+class RegimeV3Tests(unittest.TestCase):
+    def test_v3_features_are_prefix_causal(self):
+        x = market_frame("2020-01-01", "2021-01-01", varying=True)
+        before = one.regime3_features(one.daily_market(x))
+        changed = x.copy()
+        changed.loc[900:, ["open", "high", "low", "close", "volume", "funding_rate"]] *= 4
+        after = one.regime3_features(one.daily_market(changed))
+        assert_frame_equal(before.loc[:149, one.REGIME3_BASE], after.loc[:149, one.REGIME3_BASE])
+
+    def test_fast_matcher_reproduces_v2_archive(self):
+        rng = np.random.default_rng(3)
+        q = np.zeros(200); q[30:40] = 1; q[60:66] = -1; q[100:110] = 1; q[112:120] = -1
+        rows = daily(q); rows["symbol"] = "BTCUSDT"
+        _, e = one.regime_labels(rows)
+        e["symbol"] = "BTCUSDT"
+        p = rng.dirichlet([4, 1, 1], len(rows))
+        for t in (.1, .2, .3):
+            old, _ = one.regime_alarm_archive(rows, p, t, e)
+            new, _ = one.regime3_alarms(rows, p, t, e)
+            self.assertEqual([(a["time"][:10], a["side"], a["event_id"]) for a in old],
+                             [(a["time"][:10], a["side"], a["event_id"]) for a in new])
+
+    def test_tune_scope_never_scores_untouched_years(self):
+        n = 1400; rng = np.random.default_rng(5)
+        d = pd.DataFrame(rng.normal(size=(n, len(one.REGIME3_BASE))), columns=one.REGIME3_BASE)
+        d["time"] = pd.date_range("2020-01-01", periods=n, tz="UTC")
+        d["symbol"], d["q"] = "BTCUSDT", 0.
+        d["y"] = np.where(np.arange(n) % 23 < 2, 1, 0).astype(float)
+        d["target_onset"] = d.time.where(d.y.ne(0))+pd.Timedelta(days=2)
+        d["event_key"] = np.where(d.y.ne(0), "BTCUSDT|"+d.target_onset.astype(str), "")
+        d["maturity_time"] = d.time+pd.Timedelta(days=12)
+        e = pd.DataFrame({"onset_i": [], "onset_time": pd.Series([], dtype="datetime64[ns, UTC]"), "side": [],
+                          "status": [], "symbol": []})
+        f, folds = one.regime3_walk_forward(d, e, ("prior",), "tune")
+        self.assertLess(f.time.max(), pd.Timestamp(one.REGIME3_TUNE_END, tz="UTC"))
+        self.assertEqual(len(folds), 4)
+
+    def test_v3_cli_rejects_sealed(self):
+        with self.assertRaises(SystemExit):
+            one.main(["--regime3", "--unlock-oos"])
+
+
 if __name__ == "__main__":
     unittest.main()
