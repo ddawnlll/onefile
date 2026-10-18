@@ -2835,6 +2835,15 @@ REGIME3_POLICIES = ("precision80", "budget", "fixed70")
 # Designated after 2021-2022 tuning, committed before any 2023-2024 scoring.
 REGIME3_PRIMARY = ("mc", "fixed70")
 REGIME3_SECONDARY = (("logistic", "precision80"), ("xgb", "budget"))
+# Holdout pre-registration (committed before any holdout asset is scored). Phase 1-4
+# found no feature, drift or volatility model that adds information beyond mc, so
+# the unchanged v3 system is tested once on 12 unseen assets with the v3 gate;
+# the whole 2021-2024 holdout window counts as untouched.
+REGIME_HOLDOUT_PREREGISTRATION = {
+    "primary": REGIME3_PRIMARY, "secondary": [("logistic", "precision80"), ("xgb", "precision80"), ("mc", "budget")],
+    "code": "regime v3 models/configs unchanged from PR #6", "gate": "regime3_gate on the holdout window",
+    "expectation": "mechanical drop-off skill should transfer; non-mechanical (need>0) skill is not expected",
+    "dependence": "holdout assets share market days with core-5; evidence is cross-sectional, not temporal OOS"}
 # Worker-owned model configs. Changing them must not touch the harness above.
 REGIME3_LOGIT = {"features": ["lrw_up", "lrw_down", "need_up", "need_down", "er_proj"], "C": 1., "class_weight": "sqrt"}
 REGIME3_XGB = {"features": REGIME3_STRUCTURAL + ["q", "z20", "er20"], "max_depth": 2, "min_child_weight": 2., "learning_rate": .05,
@@ -3277,6 +3286,7 @@ def regime3_run(assets: dict[str, pd.DataFrame], args) -> dict:
         meta = {"universe": getattr(args, "regime3_universe", "core5"), "scope": args.regime3_scope,
                 "data": getattr(args, "data_provenance", {}), "assets": sorted(assets), "models": list(kinds),
                 "policies": list(REGIME3_POLICIES), "primary": list(REGIME3_PRIMARY),
+                "holdout_preregistration": REGIME_HOLDOUT_PREREGISTRATION if getattr(args, "regime3_universe", "core5") == "holdout" else None,
                 "config": {"logistic": REGIME3_LOGIT, "xgb": REGIME3_XGB, "fixed": REGIME3_FIXED, "budget": REGIME3_BUDGET,
                            "min_history_alarms": REGIME3_MIN_HISTORY_ALARMS, "horizon": REGIME_HORIZON, "confirm": REGIME_CONFIRM,
                            "mc": {"paths": 400, "df": 4., "seed": SEED}, "tune_end": REGIME3_TUNE_END},
