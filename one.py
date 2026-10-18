@@ -1279,6 +1279,17 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
                   years: float) -> dict:
     """One alarm / 7 days; strict signed pre-onset matching, deduplicated events."""
     detected, leads, alarms = set(), [], []
+    # Confirmed onsets are chronological in onset_labels(). Index them once per
+    # alarm scan rather than creating a full events DataFrame mask per candidate.
+    confirmed = events.loc[events.status.eq("CONFIRMED")]
+    by_side = {}
+    for event_side in (-1, 1):
+        subset = confirmed.loc[confirmed.side.eq(event_side)]
+        if subset.onset_time.is_monotonic_increasing and subset.onset_time.notna().all():
+            by_side[event_side] = (pd.DatetimeIndex(subset.onset_time).asi8,
+                                   subset.onset_i.to_numpy(dtype=int))
+        else:
+            by_side[event_side] = None  # Preserve original order for unusual inputs.
     last = None
     for j, row in enumerate(rows.itertuples()):
         limit = float(threshold[j]) if np.ndim(threshold) else float(threshold)
@@ -1287,10 +1298,18 @@ def alarm_metrics(rows: pd.DataFrame, p: np.ndarray, threshold, events: pd.DataF
             continue
         last = row.time
         sign = int(H1A_CLASSES[sign_i])
-        matching = events.loc[(events.status == "CONFIRMED") & (events.side == sign) &
-                              (events.onset_time > row.time) &
-                              (events.onset_time <= row.time + pd.Timedelta(days=7))]
-        key = None if matching.empty else int(matching.iloc[0].onset_i)
+        indexed = by_side[sign]
+        if indexed is None:
+            matching = confirmed.loc[confirmed.side.eq(sign) &
+                                     confirmed.onset_time.gt(row.time) &
+                                     confirmed.onset_time.le(row.time + pd.Timedelta(days=7))]
+            key = None if matching.empty else int(matching.iloc[0].onset_i)
+        else:
+            times, onset_ids = indexed
+            next_i = int(np.searchsorted(times, row.time.value, side="right"))
+            key = (int(onset_ids[next_i])
+                   if next_i < len(times) and times[next_i] <= (row.time + pd.Timedelta(days=7)).value
+                   else None)
         lead_days = None
         if key is not None and key not in detected:
             detected.add(key)
